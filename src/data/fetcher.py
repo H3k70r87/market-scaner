@@ -1,6 +1,9 @@
 """
-Data fetcher for stocks (yfinance) and crypto (ccxt/Binance public API).
+Data fetcher for stocks (yfinance) and crypto (ccxt – KuCoin public API).
 Returns normalized OHLCV DataFrames with columns: open, high, low, close, volume.
+
+NOTE: Binance blocks GitHub Actions servers (HTTP 451 geo-restriction).
+      We use KuCoin instead – no API key required, no geo-restrictions.
 """
 
 import logging
@@ -9,17 +12,22 @@ from typing import Optional
 
 import ccxt
 import pandas as pd
+import requests
 import yfinance as yf
 
 logger = logging.getLogger(__name__)
 
-# Timeframe mappings
-YFINANCE_INTERVAL_MAP = {
-    "1h": "1h",
-    "4h": "1h",   # yfinance has no 4h; fetch 1h and resample
-    "1d": "1d",
-}
+# Browser-like User-Agent – prevents Yahoo Finance from blocking requests
+_SESSION = requests.Session()
+_SESSION.headers.update({
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/122.0.0.0 Safari/537.36"
+    )
+})
 
+# Timeframe mappings
 CCXT_TIMEFRAME_MAP = {
     "1h": "1h",
     "4h": "4h",
@@ -69,14 +77,7 @@ def _resample_to_4h(df_1h: pd.DataFrame) -> pd.DataFrame:
 
 def fetch_stock_data(symbol: str, timeframe: str) -> Optional[pd.DataFrame]:
     """
-    Fetch stock OHLCV data via yfinance.
-
-    Args:
-        symbol: Ticker symbol, e.g. 'AAPL'
-        timeframe: One of '1h', '4h', '1d'
-
-    Returns:
-        DataFrame with columns [open, high, low, close, volume] or None on failure.
+    Fetch stock OHLCV data via yfinance with browser User-Agent.
     """
     try:
         if timeframe in ("1h", "4h"):
@@ -87,7 +88,7 @@ def fetch_stock_data(symbol: str, timeframe: str) -> Optional[pd.DataFrame]:
             period = "1y"
 
         def _download():
-            ticker = yf.Ticker(symbol)
+            ticker = yf.Ticker(symbol, session=_SESSION)
             df = ticker.history(period=period, interval=interval, auto_adjust=True)
             return df
 
@@ -97,7 +98,6 @@ def fetch_stock_data(symbol: str, timeframe: str) -> Optional[pd.DataFrame]:
             logger.warning("No data returned for stock %s (%s)", symbol, timeframe)
             return None
 
-        # Normalize column names
         df.columns = [c.lower() for c in df.columns]
         df = df[["open", "high", "low", "close", "volume"]].copy()
         df.index = pd.to_datetime(df.index, utc=True)
@@ -105,7 +105,6 @@ def fetch_stock_data(symbol: str, timeframe: str) -> Optional[pd.DataFrame]:
         if timeframe == "4h":
             df = _resample_to_4h(df)
 
-        # Keep last N candles
         n = CANDLE_COUNTS.get(timeframe, 200)
         df = df.tail(n)
 
@@ -119,15 +118,9 @@ def fetch_stock_data(symbol: str, timeframe: str) -> Optional[pd.DataFrame]:
 
 def fetch_crypto_data(symbol: str, exchange_id: str, timeframe: str) -> Optional[pd.DataFrame]:
     """
-    Fetch crypto OHLCV data via ccxt (Binance public API – no API key required).
-
-    Args:
-        symbol: Trading pair, e.g. 'BTC/USDT'
-        exchange_id: Exchange name, e.g. 'binance'
-        timeframe: One of '1h', '4h', '1d'
-
-    Returns:
-        DataFrame with columns [open, high, low, close, volume] or None on failure.
+    Fetch crypto OHLCV data via ccxt.
+    Default exchange: KuCoin (no geo-restrictions, no API key needed).
+    Binance is blocked on GitHub Actions (HTTP 451).
     """
     try:
         exchange_class = getattr(ccxt, exchange_id)
@@ -165,16 +158,10 @@ def fetch_crypto_data(symbol: str, exchange_id: str, timeframe: str) -> Optional
 
 
 def fetch_asset_data(
-    symbol: str, timeframe: str, asset_type: str, exchange: str = "binance"
+    symbol: str, timeframe: str, asset_type: str, exchange: str = "kucoin"
 ) -> Optional[pd.DataFrame]:
     """
     Unified entry point. Returns a normalized OHLCV DataFrame or None.
-
-    Args:
-        symbol: Ticker or trading pair
-        timeframe: '1h', '4h', or '1d'
-        asset_type: 'stock' or 'crypto'
-        exchange: Exchange id for crypto (default 'binance')
     """
     if asset_type == "stock":
         return fetch_stock_data(symbol, timeframe)
