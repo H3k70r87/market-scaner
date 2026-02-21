@@ -15,6 +15,12 @@ assets:
     - symbol: "BNB/USDT"
       exchange: "kucoin"
       timeframes: ["1d"]
+    - symbol: "BTC/CZK"
+      exchange: "coinmate"
+      timeframes: ["4h", "1d"]
+    - symbol: "ETH/CZK"
+      exchange: "coinmate"
+      timeframes: ["1d"]
   stocks: []
   # yfinance is blocked on GitHub Actions by Yahoo Finance anti-scraping.
   # Use crypto pairs on KuCoin instead – add more crypto pairs above if needed.
