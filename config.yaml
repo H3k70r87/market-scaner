@@ -8,12 +8,20 @@ assets:
       timeframes: ["4h", "1d"]
     - symbol: "SOL/USDT"
       exchange: "kucoin"
-      timeframes: ["4h"]
-  stocks:
-    - symbol: "AAPL"
+      timeframes: ["4h", "1d"]
+    - symbol: "XRP/USDT"
+      exchange: "kucoin"
+      timeframes: ["4h", "1d"]
+    - symbol: "BNB/USDT"
+      exchange: "kucoin"
       timeframes: ["1d"]
-    - symbol: "NVDA"
-      timeframes: ["1h", "1d"]
+  stocks: []
+  # yfinance is blocked on GitHub Actions by Yahoo Finance anti-scraping.
+  # Use crypto pairs on KuCoin instead – add more crypto pairs above if needed.
+  # Example crypto replacements for stocks:
+  #   AAPL-like (stable large cap) → BTC/USDT already included
+  #   NVDA-like (high volatility)  → SOL/USDT already included
+  # To re-enable stocks, run the scanner locally where yfinance works fine.
 
 scanner:
   min_confidence: 65
