@@ -1,0 +1,12 @@
+streamlit==1.41.1
+yfinance==0.2.51
+ccxt==4.4.69
+pandas==2.2.3
+pandas-ta==0.3.14b
+numpy==1.26.4
+supabase==2.10.0
+python-telegram-bot==21.9
+plotly==5.24.1
+pyyaml==6.0.2
+requests==2.32.3
+scipy==1.13.1

@@ -1,0 +1,34 @@
+assets:
+  crypto:
+    - symbol: "BTC/USDT"
+      exchange: "binance"
+      timeframes: ["1h", "4h", "1d"]
+    - symbol: "ETH/USDT"
+      exchange: "binance"
+      timeframes: ["4h", "1d"]
+    - symbol: "SOL/USDT"
+      exchange: "binance"
+      timeframes: ["4h"]
+  stocks:
+    - symbol: "AAPL"
+      timeframes: ["1d"]
+    - symbol: "NVDA"
+      timeframes: ["1h", "1d"]
+
+scanner:
+  min_confidence: 65
+  alert_cooldown_hours: 24
+  patterns_enabled:
+    - double_top_bottom
+    - head_and_shoulders
+    - bull_bear_flag
+    - triangles
+    - golden_death_cross
+    - rsi_divergence
+    - engulfing
+    - support_resistance_break
+
+dashboard:
+  title: "Crypto & Stock Analyzer"
+  default_candles: 100
+  theme: "dark"
