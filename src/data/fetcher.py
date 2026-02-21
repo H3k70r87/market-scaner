@@ -4,6 +4,8 @@ Returns normalized OHLCV DataFrames with columns: open, high, low, close, volume
 
 NOTE: Binance blocks GitHub Actions servers (HTTP 451 geo-restriction).
       We use KuCoin instead – no API key required, no geo-restrictions.
+      Coinmate does not support OHLCV via ccxt.
+      BTC/CZK and ETH/CZK are fetched as USDT pairs and converted via CNB rate.
 """
 
 import logging
@@ -14,6 +16,9 @@ import ccxt
 import pandas as pd
 import requests
 import yfinance as yf
+
+# Cache for CNB USD/CZK rate (valid 1 hour)
+_czk_rate_cache: dict = {"rate": None, "ts": 0}
 
 logger = logging.getLogger(__name__)
 
@@ -157,13 +162,86 @@ def fetch_crypto_data(symbol: str, exchange_id: str, timeframe: str) -> Optional
         return None
 
 
+def get_usd_czk_rate() -> Optional[float]:
+    """
+    Fetch current USD/CZK exchange rate from CNB (Czech National Bank) public API.
+    Free, no API key required. Cached for 1 hour.
+    """
+    now = time.time()
+    if _czk_rate_cache["rate"] and now - _czk_rate_cache["ts"] < 3600:
+        return _czk_rate_cache["rate"]
+
+    try:
+        # CNB daily FX rates – plain text format
+        resp = requests.get(
+            "https://www.cnb.cz/en/financial-markets/foreign-exchange-market/"
+            "central-bank-exchange-rate-fixing/central-bank-exchange-rate-fixing/"
+            "daily.txt",
+            timeout=10,
+        )
+        resp.raise_for_status()
+        # Format: Country|Currency|Amount|Code|Rate
+        for line in resp.text.splitlines():
+            parts = line.split("|")
+            if len(parts) == 5 and parts[3] == "USD":
+                amount = float(parts[2])
+                rate = float(parts[4].replace(",", "."))
+                usd_czk = rate / amount
+                _czk_rate_cache["rate"] = usd_czk
+                _czk_rate_cache["ts"] = now
+                logger.info("USD/CZK rate from CNB: %.2f", usd_czk)
+                return usd_czk
+    except Exception as exc:
+        logger.error("Failed to fetch USD/CZK rate from CNB: %s", exc)
+
+    # Fallback: approximate rate
+    logger.warning("Using fallback USD/CZK rate: 23.0")
+    return 23.0
+
+
+def fetch_czk_data(base_symbol: str, exchange_id: str, timeframe: str) -> Optional[pd.DataFrame]:
+    """
+    Fetch USDT pair (e.g. BTC/USDT) and convert all price columns to CZK
+    using the current USD/CZK rate from CNB.
+    """
+    df = fetch_crypto_data(base_symbol, exchange_id, timeframe)
+    if df is None or df.empty:
+        return None
+
+    rate = get_usd_czk_rate()
+    if rate is None:
+        return None
+
+    price_cols = ["open", "high", "low", "close"]
+    df[price_cols] = df[price_cols] * rate
+    logger.info(
+        "Converted %s → CZK at rate %.2f (source: CNB)", base_symbol, rate
+    )
+    return df
+
+
 def fetch_asset_data(
-    symbol: str, timeframe: str, asset_type: str, exchange: str = "kucoin"
+    symbol: str,
+    timeframe: str,
+    asset_type: str,
+    exchange: str = "kucoin",
+    czk_conversion: bool = False,
+    base_symbol: Optional[str] = None,
 ) -> Optional[pd.DataFrame]:
     """
     Unified entry point. Returns a normalized OHLCV DataFrame or None.
+
+    Args:
+        symbol: Display symbol (e.g. 'BTC/CZK')
+        timeframe: '1h', '4h', or '1d'
+        asset_type: 'stock' or 'crypto'
+        exchange: Exchange id for crypto (default 'kucoin')
+        czk_conversion: If True, fetch base_symbol in USDT and convert to CZK via CNB
+        base_symbol: USDT pair to fetch when czk_conversion=True (e.g. 'BTC/USDT')
     """
-    if asset_type == "stock":
+    if czk_conversion and base_symbol:
+        return fetch_czk_data(base_symbol, exchange, timeframe)
+    elif asset_type == "stock":
         return fetch_stock_data(symbol, timeframe)
     elif asset_type == "crypto":
         return fetch_crypto_data(symbol, exchange, timeframe)

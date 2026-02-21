@@ -16,18 +16,16 @@ assets:
       exchange: "kucoin"
       timeframes: ["1d"]
     - symbol: "BTC/CZK"
-      exchange: "coinmate"
+      exchange: "kucoin"
+      base_symbol: "BTC/USDT"
+      czk_conversion: true
       timeframes: ["4h", "1d"]
     - symbol: "ETH/CZK"
-      exchange: "coinmate"
+      exchange: "kucoin"
+      base_symbol: "ETH/USDT"
+      czk_conversion: true
       timeframes: ["1d"]
   stocks: []
-  # yfinance is blocked on GitHub Actions by Yahoo Finance anti-scraping.
-  # Use crypto pairs on KuCoin instead – add more crypto pairs above if needed.
-  # Example crypto replacements for stocks:
-  #   AAPL-like (stable large cap) → BTC/USDT already included
-  #   NVDA-like (high volatility)  → SOL/USDT already included
-  # To re-enable stocks, run the scanner locally where yfinance works fine.
 
 scanner:
   min_confidence: 65

@@ -66,6 +66,8 @@ def scan_asset(
     enabled_patterns: list[str],
     min_confidence: float,
     cooldown_hours: int,
+    czk_conversion: bool = False,
+    base_symbol: Optional[str] = None,
 ) -> list[dict]:
     """
     Fetch data for one asset/timeframe and run all enabled patterns.
@@ -74,7 +76,11 @@ def scan_asset(
     results = []
 
     logger.info("Scanning %s (%s) on %s", symbol, asset_type, timeframe)
-    df = fetch_asset_data(symbol, timeframe, asset_type, exchange)
+    df = fetch_asset_data(
+        symbol, timeframe, asset_type, exchange,
+        czk_conversion=czk_conversion,
+        base_symbol=base_symbol,
+    )
 
     if df is None or df.empty:
         logger.warning("No data for %s %s – skipping", symbol, timeframe)
@@ -196,8 +202,10 @@ def run_scan(min_confidence: Optional[float] = None) -> list[dict]:
     # --- Crypto assets ---
     for asset_cfg in assets_cfg.get("crypto", []):
         symbol = asset_cfg["symbol"]
-        exchange = asset_cfg.get("exchange", "binance")
+        exchange = asset_cfg.get("exchange", "kucoin")
         timeframes = asset_cfg.get("timeframes", ["1h"])
+        czk_conversion = asset_cfg.get("czk_conversion", False)
+        base_symbol = asset_cfg.get("base_symbol")
 
         for tf in timeframes:
             try:
@@ -209,6 +217,8 @@ def run_scan(min_confidence: Optional[float] = None) -> list[dict]:
                     enabled_patterns=enabled_patterns,
                     min_confidence=min_confidence,
                     cooldown_hours=cooldown_hours,
+                    czk_conversion=czk_conversion,
+                    base_symbol=base_symbol,
                 )
                 all_results.extend(results)
             except Exception as exc:

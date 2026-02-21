@@ -71,6 +71,8 @@ def _get_chat_id() -> Optional[str]:
 
 
 def _format_price(price: float, symbol: str) -> str:
+    if "CZK" in symbol:
+        return f"{price:,.0f} Kč"
     if "USDT" in symbol or price > 100:
         return f"${price:,.2f}"
     return f"${price:.6f}"
