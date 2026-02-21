@@ -2,7 +2,7 @@ streamlit==1.41.1
 yfinance==0.2.51
 ccxt==4.4.69
 pandas==2.2.3
-pandas-ta==0.3.14b
+ta==0.11.0
 numpy==1.26.4
 supabase==2.10.0
 python-telegram-bot==21.9
