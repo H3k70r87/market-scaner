@@ -5,6 +5,12 @@ Logic:
 - Find price levels touched 3+ times in the last 50 candles (within ±0.5% tolerance)
 - Detect if the current candle breaks through such a level
 - Confirm with volume > 1.5× 20-bar average
+
+Podpora a odpor po průlomu:
+- Bullish (průlom odporu): prolomená úroveň se stává novou PODPOROU (flip),
+  nový ODPOR = nejbližší historický swing high NAD cenou
+- Bearish (průlom podpory): prolomená úroveň se stává novým ODPOREM (flip),
+  nová PODPORA = nejbližší historický swing low POD cenou
 """
 
 import numpy as np
@@ -12,6 +18,28 @@ import pandas as pd
 from scipy.signal import argrelextrema
 
 from .base import BasePattern, PatternResult
+
+
+def _nearest_swing_high_above(df: pd.DataFrame, current_close: float, lookback: int = 100) -> float:
+    """Nejbližší swing high NAD aktuální cenou (další odpor po průlomu)."""
+    window = df.tail(lookback)
+    highs = window["high"].values
+    peak_idx = argrelextrema(highs, np.greater_equal, order=3)[0]
+    above = [highs[i] for i in peak_idx if highs[i] > current_close * 1.001]  # alespoň 0.1 % nad cenou
+    if above:
+        return float(min(above))
+    return float(highs.max())
+
+
+def _nearest_swing_low_below(df: pd.DataFrame, current_close: float, lookback: int = 100) -> float:
+    """Nejbližší swing low POD aktuální cenou (další podpora po průlomu)."""
+    window = df.tail(lookback)
+    lows = window["low"].values
+    trough_idx = argrelextrema(lows, np.less_equal, order=3)[0]
+    below = [lows[i] for i in trough_idx if lows[i] < current_close * 0.999]  # alespoň 0.1 % pod cenou
+    if below:
+        return float(max(below))
+    return float(lows.min())
 
 
 class SupportResistancePattern(BasePattern):
@@ -79,6 +107,9 @@ class SupportResistancePattern(BasePattern):
                     touch_score = min(touches / 5, 1.0)
                     vol_score = min((volume_ratio - 1) / 2, 1.0) if volume_confirmed else 0
                     confidence = min(100, 60 + touch_score * 20 + vol_score * 20)
+                    # Prolomená rezistence = nová PODPORA (S/R flip)
+                    # Nový ODPOR = nejbližší historický swing high NAD cenou
+                    next_resistance = round(_nearest_swing_high_above(df, current_close), 4)
                     return self._result(
                         "bullish",
                         confidence,
@@ -88,8 +119,8 @@ class SupportResistancePattern(BasePattern):
                             "touches": touches,
                             "volume_ratio": round(volume_ratio, 2),
                             "volume_confirmed": volume_confirmed,
-                            "support": round(price, 4),
-                            "resistance": round(price * 1.03, 4),
+                            "support": round(price, 4),       # prolomená úroveň = nová podpora
+                            "resistance": next_resistance,     # nejbližší swing high nad cenou
                             "current_close": round(current_close, 4),
                         },
                     )
@@ -99,6 +130,9 @@ class SupportResistancePattern(BasePattern):
                     touch_score = min(touches / 5, 1.0)
                     vol_score = min((volume_ratio - 1) / 2, 1.0) if volume_confirmed else 0
                     confidence = min(100, 60 + touch_score * 20 + vol_score * 20)
+                    # Prolomená podpora = nový ODPOR (S/R flip)
+                    # Nová PODPORA = nejbližší historický swing low POD cenou
+                    next_support = round(_nearest_swing_low_below(df, current_close), 4)
                     return self._result(
                         "bearish",
                         confidence,
@@ -108,8 +142,8 @@ class SupportResistancePattern(BasePattern):
                             "touches": touches,
                             "volume_ratio": round(volume_ratio, 2),
                             "volume_confirmed": volume_confirmed,
-                            "support": round(price * 0.97, 4),
-                            "resistance": round(price, 4),
+                            "support": next_support,           # nejbližší swing low pod cenou
+                            "resistance": round(price, 4),     # prolomená úroveň = nový odpor
                             "current_close": round(current_close, 4),
                         },
                     )

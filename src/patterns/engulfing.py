@@ -10,11 +10,45 @@ Bearish Engulfing:
 - Current candle is bearish (red) and completely engulfs the previous body
 
 Best on 4h or daily charts.
+
+Podpora a odpor jsou odvozeny ze skutečných swing high/low z posledních N svíček:
+- Odpor (bullish): nejbližší lokální maximum NAD aktuální cenou (kde cena může narazit)
+- Podpora (bearish): nejbližší lokální minimum POD aktuální cenou (kde může hledat dno)
 """
 
+import numpy as np
 import pandas as pd
+from scipy.signal import argrelextrema
 
 from .base import BasePattern, PatternResult
+
+
+def _nearest_swing_high(df: pd.DataFrame, current_close: float, lookback: int = 50) -> float:
+    """
+    Vrátí nejbližší swing high NAD aktuální cenou z posledních `lookback` svíček.
+    Pokud žádný neexistuje, vrátí nejvyšší high z okna.
+    """
+    window = df.tail(lookback)
+    highs = window["high"].values
+    peak_idx = argrelextrema(highs, np.greater_equal, order=3)[0]
+    above = [highs[i] for i in peak_idx if highs[i] > current_close]
+    if above:
+        return float(min(above))  # nejbližší nad cenou
+    return float(highs.max())
+
+
+def _nearest_swing_low(df: pd.DataFrame, current_close: float, lookback: int = 50) -> float:
+    """
+    Vrátí nejbližší swing low POD aktuální cenou z posledních `lookback` svíček.
+    Pokud žádný neexistuje, vrátí nejnižší low z okna.
+    """
+    window = df.tail(lookback)
+    lows = window["low"].values
+    trough_idx = argrelextrema(lows, np.less_equal, order=3)[0]
+    below = [lows[i] for i in trough_idx if lows[i] < current_close]
+    if below:
+        return float(max(below))  # nejbližší pod cenou
+    return float(lows.min())
 
 
 class EngulfingPattern(BasePattern):
@@ -71,6 +105,11 @@ class EngulfingPattern(BasePattern):
             size_bonus = min(20, (size_ratio - 1) * 20)
             confidence = min(100, 60 + trend_bonus + size_bonus)
 
+            # Podpora = spodek engulfing svíčky (skutečné dno vzoru)
+            support_level = round(float(curr_bot), 4)
+            # Odpor = nejbližší swing high NAD cenou (skutečná TA úroveň)
+            resistance_level = round(_nearest_swing_high(df, current_close), 4)
+
             return self._result(
                 "bullish",
                 confidence,
@@ -81,8 +120,8 @@ class EngulfingPattern(BasePattern):
                     "curr_close": round(float(current_close), 4),
                     "size_ratio": round(size_ratio, 2),
                     "prior_trend_pct": round(trend_slope * 100, 2),
-                    "support": round(float(curr_bot), 4),
-                    "resistance": round(current_close * 1.03, 4),
+                    "support": support_level,
+                    "resistance": resistance_level,
                     "current_close": round(current_close, 4),
                 },
             )
@@ -92,6 +131,11 @@ class EngulfingPattern(BasePattern):
             trend_bonus = max(0, trend_slope) * 200
             size_bonus = min(20, (size_ratio - 1) * 20)
             confidence = min(100, 60 + trend_bonus + size_bonus)
+
+            # Odpor = vršek engulfing svíčky (skutečný strop vzoru)
+            resistance_level = round(float(curr_top), 4)
+            # Podpora = nejbližší swing low POD cenou (skutečná TA úroveň)
+            support_level = round(_nearest_swing_low(df, current_close), 4)
 
             return self._result(
                 "bearish",
@@ -103,8 +147,8 @@ class EngulfingPattern(BasePattern):
                     "curr_close": round(float(current_close), 4),
                     "size_ratio": round(size_ratio, 2),
                     "prior_trend_pct": round(trend_slope * 100, 2),
-                    "support": round(current_close * 0.97, 4),
-                    "resistance": round(float(curr_top), 4),
+                    "support": support_level,
+                    "resistance": resistance_level,
                     "current_close": round(current_close, 4),
                 },
             )

@@ -5,12 +5,39 @@ Bullish divergence: price makes a lower low, RSI makes a higher low (hidden stre
 Bearish divergence: price makes a higher high, RSI makes a lower high (hidden weakness).
 
 Lookback: last 20 candles.
+
+Podpora a odpor:
+- Bullish: podpora = skutečné nedávné price dno, odpor = nejbližší swing high NAD cenou
+- Bearish: odpor = skutečné nedávné price maximum, podpora = nejbližší swing low POD cenou
 """
 
 import numpy as np
 import pandas as pd
+from scipy.signal import argrelextrema
 
 from .base import BasePattern, PatternResult
+
+
+def _nearest_swing_high(df: pd.DataFrame, current_close: float, lookback: int = 50) -> float:
+    """Nejbližší swing high NAD aktuální cenou z posledních `lookback` svíček."""
+    window = df.tail(lookback)
+    highs = window["high"].values
+    peak_idx = argrelextrema(highs, np.greater_equal, order=3)[0]
+    above = [highs[i] for i in peak_idx if highs[i] > current_close]
+    if above:
+        return float(min(above))
+    return float(highs.max())
+
+
+def _nearest_swing_low(df: pd.DataFrame, current_close: float, lookback: int = 50) -> float:
+    """Nejbližší swing low POD aktuální cenou z posledních `lookback` svíček."""
+    window = df.tail(lookback)
+    lows = window["low"].values
+    trough_idx = argrelextrema(lows, np.less_equal, order=3)[0]
+    below = [lows[i] for i in trough_idx if lows[i] < current_close]
+    if below:
+        return float(max(below))
+    return float(lows.min())
 
 
 def _rsi(closes: pd.Series, period: int = 14) -> pd.Series:
@@ -64,6 +91,10 @@ class RSIDivergencePattern(BasePattern):
 
             if confidence >= 55:
                 current_close = float(closes.iloc[-1])
+                # Podpora = skutečné nedávné price dno (divergenční bod)
+                support_level = round(float(price_low_recent), 4)
+                # Odpor = nejbližší swing high NAD aktuální cenou (reálná TA úroveň)
+                resistance_level = round(_nearest_swing_high(df, current_close), 4)
                 return self._result(
                     "bullish",
                     confidence,
@@ -73,8 +104,8 @@ class RSIDivergencePattern(BasePattern):
                         "rsi_low_recent": round(float(rsi_low_recent), 2),
                         "rsi_low_past": round(float(rsi_low_past), 2),
                         "current_rsi": round(float(recent_rsi[-1]), 2),
-                        "support": round(float(price_low_recent), 4),
-                        "resistance": round(current_close * 1.04, 4),
+                        "support": support_level,
+                        "resistance": resistance_level,
                         "current_close": round(current_close, 4),
                     },
                 )
@@ -92,6 +123,10 @@ class RSIDivergencePattern(BasePattern):
 
             if confidence >= 55:
                 current_close = float(closes.iloc[-1])
+                # Odpor = skutečné nedávné price maximum (divergenční bod)
+                resistance_level = round(float(price_high_recent), 4)
+                # Podpora = nejbližší swing low POD aktuální cenou (reálná TA úroveň)
+                support_level = round(_nearest_swing_low(df, current_close), 4)
                 return self._result(
                     "bearish",
                     confidence,
@@ -101,8 +136,8 @@ class RSIDivergencePattern(BasePattern):
                         "rsi_high_recent": round(float(rsi_high_recent), 2),
                         "rsi_high_past": round(float(rsi_high_past), 2),
                         "current_rsi": round(float(recent_rsi[-1]), 2),
-                        "support": round(current_close * 0.96, 4),
-                        "resistance": round(float(price_high_recent), 4),
+                        "support": support_level,
+                        "resistance": resistance_level,
                         "current_close": round(current_close, 4),
                     },
                 )

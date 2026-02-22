@@ -5,11 +5,39 @@ Golden Cross: EMA50 crosses above EMA200 (bullish)
 Death Cross:  EMA50 crosses below EMA200 (bearish)
 
 Confirmation: volume on cross candle is above average.
+
+Podpora a odpor:
+- Golden Cross (bullish): podpora = EMA200 (dynamická podpora), odpor = nejbližší swing high NAD cenou
+- Death Cross (bearish): odpor = EMA200 (dynamický odpor), podpora = nejbližší swing low POD cenou
 """
 
+import numpy as np
 import pandas as pd
+from scipy.signal import argrelextrema
 
 from .base import BasePattern, PatternResult
+
+
+def _nearest_swing_high(df: pd.DataFrame, current_close: float, lookback: int = 100) -> float:
+    """Nejbližší swing high NAD aktuální cenou z posledních `lookback` svíček."""
+    window = df.tail(lookback)
+    highs = window["high"].values
+    peak_idx = argrelextrema(highs, np.greater_equal, order=5)[0]
+    above = [highs[i] for i in peak_idx if highs[i] > current_close]
+    if above:
+        return float(min(above))
+    return float(highs.max())
+
+
+def _nearest_swing_low(df: pd.DataFrame, current_close: float, lookback: int = 100) -> float:
+    """Nejbližší swing low POD aktuální cenou z posledních `lookback` svíček."""
+    window = df.tail(lookback)
+    lows = window["low"].values
+    trough_idx = argrelextrema(lows, np.less_equal, order=5)[0]
+    below = [lows[i] for i in trough_idx if lows[i] < current_close]
+    if below:
+        return float(max(below))
+    return float(lows.min())
 
 
 class CrossesPattern(BasePattern):
@@ -62,6 +90,9 @@ class CrossesPattern(BasePattern):
 
         if prev_diff < 0 and curr_diff > 0:
             # Golden Cross
+            # Podpora = EMA200 (klasická dynamická podpora po Golden Cross)
+            # Odpor = nejbližší swing high NAD cenou (reálná TA úroveň)
+            resistance_level = round(_nearest_swing_high(df, current_close), 4)
             return self._result(
                 "bullish",
                 confidence,
@@ -71,13 +102,16 @@ class CrossesPattern(BasePattern):
                     "volume_ratio": round(volume_ratio, 2),
                     "volume_confirmed": volume_confirmed,
                     "support": round(ema200_val, 4),
-                    "resistance": round(current_close * 1.05, 4),
+                    "resistance": resistance_level,
                     "current_close": round(current_close, 4),
                     "cross_type": "golden",
                 },
             )
         else:
             # Death Cross
+            # Odpor = EMA200 (klasický dynamický odpor po Death Cross)
+            # Podpora = nejbližší swing low POD cenou (reálná TA úroveň)
+            support_level = round(_nearest_swing_low(df, current_close), 4)
             return self._result(
                 "bearish",
                 confidence,
@@ -86,7 +120,7 @@ class CrossesPattern(BasePattern):
                     "ema200": round(ema200_val, 4),
                     "volume_ratio": round(volume_ratio, 2),
                     "volume_confirmed": volume_confirmed,
-                    "support": round(current_close * 0.95, 4),
+                    "support": support_level,
                     "resistance": round(ema200_val, 4),
                     "current_close": round(current_close, 4),
                     "cross_type": "death",
