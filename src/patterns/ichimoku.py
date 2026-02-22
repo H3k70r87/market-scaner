@@ -82,7 +82,13 @@ class IchimokuPattern(BasePattern):
         close_curr = closes.iloc[idx_curr]
 
         # Chikou: aktuální close vs. close před 26 svíčkami
-        chikou_ref_close = closes.iloc[-self.CHIKOU_SHIFT - 1] if len(closes) > self.CHIKOU_SHIFT + 1 else None
+        # Použijeme přímo historickou hodnotu – chikou_ref je close[−27]
+        if len(closes) > self.CHIKOU_SHIFT + 1:
+            chikou_ref_close = closes.iloc[-self.CHIKOU_SHIFT - 1]
+            if pd.isna(chikou_ref_close):
+                chikou_ref_close = None
+        else:
+            chikou_ref_close = None
 
         # Kontrola NaN
         if any(pd.isna(v) for v in [t_curr, t_prev, k_curr, k_prev, sa_curr, sb_curr]):
@@ -91,6 +97,13 @@ class IchimokuPattern(BasePattern):
         # Cloud top a bottom (aktuální)
         cloud_top = max(sa_curr, sb_curr)
         cloud_bottom = min(sa_curr, sb_curr)
+
+        # Příliš úzký cloud = neurčitý trh (flat konsolidace) → přeskočit
+        # Minimální šířka cloudu: 0.2 % aktuální ceny
+        MIN_CLOUD_WIDTH_PCT = 0.002
+        cloud_width = cloud_top - cloud_bottom
+        if cloud_width < close_curr * MIN_CLOUD_WIDTH_PCT:
+            return self._not_found()
 
         # --- Bullish TK Cross ---
         bullish_cross = (t_prev <= k_prev) and (t_curr > k_curr)

@@ -103,6 +103,10 @@ def scan_asset(
     """
     Fetch data for one asset/timeframe and run all enabled patterns.
     Returns list of alert dicts that passed threshold and dedup check.
+
+    Conflict filter: if any two patterns on the same asset/timeframe give
+    opposite signals (one bullish, one bearish), NO alert is sent for either.
+    The ambiguous situation is logged but not forwarded to Telegram.
     """
     results = []
 
@@ -119,6 +123,11 @@ def scan_asset(
 
     current_price = float(df["close"].iloc[-1])
     logger.info("  Current price: %.4f | Candles: %d", current_price, len(df))
+
+    # -----------------------------------------------------------------------
+    # Phase 1: Run all detectors, collect candidates that pass conf + R/R
+    # -----------------------------------------------------------------------
+    candidates: list[dict] = []  # patterns that passed all individual filters
 
     for pattern_name in enabled_patterns:
         detector = ALL_PATTERNS.get(pattern_name)
@@ -153,7 +162,7 @@ def scan_asset(
             "details": result.details,
         })
 
-        # Apply confidence threshold and cooldown for actual alerts
+        # Apply confidence threshold
         if result.confidence < min_confidence:
             logger.info(
                 "    Confidence %.1f < threshold %.1f – no alert sent",
@@ -170,7 +179,33 @@ def scan_asset(
             )
             continue
 
-        if db.is_duplicate(symbol, timeframe, pattern_name, cooldown_hours):
+        candidates.append({
+            "pattern_name": pattern_name,
+            "result": result,
+        })
+
+    # -----------------------------------------------------------------------
+    # Phase 2: Conflict check – if bullish AND bearish signals coexist, skip all
+    # -----------------------------------------------------------------------
+    if candidates:
+        signal_types = {c["result"].type for c in candidates}
+        if "bullish" in signal_types and "bearish" in signal_types:
+            bullish_names = [c["pattern_name"] for c in candidates if c["result"].type == "bullish"]
+            bearish_names = [c["pattern_name"] for c in candidates if c["result"].type == "bearish"]
+            logger.warning(
+                "  CONFLICT on %s %s – bullish: %s vs bearish: %s – no alerts sent",
+                symbol, timeframe, bullish_names, bearish_names,
+            )
+            return results  # Return detected patterns for dashboard, but send NO alerts
+
+    # -----------------------------------------------------------------------
+    # Phase 3: Dedup check and send alerts
+    # -----------------------------------------------------------------------
+    for candidate in candidates:
+        pattern_name = candidate["pattern_name"]
+        result = candidate["result"]
+
+        if db.is_duplicate(symbol, timeframe, pattern_name, result.type, cooldown_hours):
             logger.info("    Duplicate within %dh – skipping", cooldown_hours)
             continue
 
@@ -180,7 +215,6 @@ def scan_asset(
             for k in ("support", "resistance", "neckline")
             if result.details.get(k) is not None
         }
-        # pattern_data stores all coordinate points needed to redraw the pattern
         pattern_data = {k: v for k, v in result.details.items()}
 
         # Save to DB

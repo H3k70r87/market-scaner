@@ -85,9 +85,14 @@ def is_duplicate(
     asset: str,
     timeframe: str,
     pattern: str,
+    signal_type: str,
     cooldown_hours: int = 24,
 ) -> bool:
-    """Returns True if the same pattern was alerted within the cooldown period."""
+    """
+    Returns True if the same pattern + signal_type was alerted within the cooldown period.
+    signal_type is included so that a bullish → bearish flip on the same pattern
+    is treated as a new alert (not a duplicate).
+    """
     client = get_client()
     if client is None:
         logger.warning("Supabase unavailable – skipping duplicate check")
@@ -103,6 +108,7 @@ def is_duplicate(
                 .eq("asset", asset)
                 .eq("timeframe", timeframe)
                 .eq("pattern", pattern)
+                .eq("type", signal_type)
                 .gte("detected_at", cutoff)
                 .limit(1)
                 .execute()
