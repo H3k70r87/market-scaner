@@ -48,6 +48,14 @@ PATTERN_DESCRIPTIONS = {
         "bullish": "Průraz klíčové úrovně odporu s vyšším objemem – potvrzení vzestupného pohybu.",
         "bearish": "Průraz klíčové úrovně podpory s vyšším objemem – potvrzení sestupného pohybu.",
     },
+    "ichimoku": {
+        "bullish": "Tenkan překřížil Kijun zdola (TK Cross) – Ichimoku bullish signál. Cena je nad cloudem, Chikou potvrzuje sílu.",
+        "bearish": "Tenkan překřížil Kijun shora (TK Cross) – Ichimoku bearish signál. Cena je pod cloudem, Chikou potvrzuje slabost.",
+    },
+    "abc_correction": {
+        "bullish": "Dokončena ABC korekce dolů – vlna C zakončena. Elliottova korekce nabízí nákupní příležitost před obnovením vzestupného trendu.",
+        "bearish": "Dokončena ABC korekce nahoru – vlna C zakončena. Elliottova korekce nabízí prodejní příležitost před obnovením sestupného trendu.",
+    },
 }
 
 PATTERN_NAMES_CZ = {
@@ -59,6 +67,8 @@ PATTERN_NAMES_CZ = {
     "rsi_divergence": "RSI Divergence",
     "engulfing": "Engulfing svíčka",
     "support_resistance_break": "Průraz S/R úrovně",
+    "ichimoku": "Ichimoku Cloud",
+    "abc_correction": "ABC Korekce (Elliott)",
 }
 
 

@@ -29,6 +29,7 @@ assets:
 
 scanner:
   min_confidence: 65
+  min_rr: 3.0          # Minimální Risk/Reward poměr pro odeslání alertu (1:3)
   alert_cooldown_hours: 24
   patterns_enabled:
     - double_top_bottom
@@ -39,6 +40,8 @@ scanner:
     - rsi_divergence
     - engulfing
     - support_resistance_break
+    - ichimoku
+    - abc_correction
 
 dashboard:
   title: "Crypto & Stock Analyzer"

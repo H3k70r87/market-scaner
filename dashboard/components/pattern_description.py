@@ -14,6 +14,8 @@ PATTERN_NAMES_CZ = {
     "rsi_divergence": "RSI Divergence",
     "engulfing": "Engulfing svíčka",
     "support_resistance_break": "Průraz S/R úrovně",
+    "ichimoku": "Ichimoku Cloud",
+    "abc_correction": "ABC Korekce (Elliott)",
 }
 
 PATTERN_EXPLANATIONS = {
@@ -119,6 +121,34 @@ PATTERN_EXPLANATIONS = {
             "potvrzuje sílu pohybu. Proražená úroveň podpory se typicky stává novým odporem."
         ),
     },
+    "ichimoku": {
+        "bullish": (
+            "Ichimoku Cloud TK Cross (bullish) nastane, když Tenkan-sen (9-period midpoint) překříží Kijun-sen "
+            "(26-period midpoint) zdola nahoru. Signál je nejsilnější, když k překřížení dojde NAD cloudem "
+            "(Kumo) – to označuje tzv. 'silný TK Cross'. Chikou Span (lagging line) nad cenou před 26 svíčkami "
+            "potvrzuje momentum. Zelený cloud (Senkou Span A > Span B) naznačuje bullish trend."
+        ),
+        "bearish": (
+            "Ichimoku Cloud TK Cross (bearish) nastane, když Tenkan-sen překříží Kijun-sen shora dolů. "
+            "Signál je nejsilnější, když k překřížení dojde POD cloudem (Kumo) – tzv. 'silný TK Cross'. "
+            "Chikou Span pod cenou před 26 svíčkami potvrzuje bearish momentum. "
+            "Červený cloud (Senkou Span B > Span A) naznačuje bearish trend."
+        ),
+    },
+    "abc_correction": {
+        "bullish": (
+            "ABC Korekce (Elliottova vlnová teorie) – bullish. Po předchozím poklesu vzniká tříbodová korekční "
+            "struktura: vlna A (pokles), vlna B (odraz 38–61.8 % Fibonacci délky A) a vlna C (další pokles, "
+            "přibližně stejně dlouhý jako A). Dokončení vlny C signalizuje vyčerpání prodejního tlaku "
+            "a potenciální obrat trendu nahoru. Vstup je u konce C vlny, TP cíl je návrat k počátku pohybu."
+        ),
+        "bearish": (
+            "ABC Korekce (Elliottova vlnová teorie) – bearish. Po předchozím vzestupu vzniká tříbodová korekční "
+            "struktura: vlna A (vzestup), vlna B (pokles 38–61.8 % Fibonacci délky A) a vlna C (další vzestup, "
+            "přibližně stejně dlouhý jako A). Dokončení vlny C signalizuje vyčerpání kupního tlaku "
+            "a potenciální obrat trendu dolů. Vstup je u konce C vlny, TP cíl je návrat k počátku pohybu."
+        ),
+    },
 }
 
 DISCLAIMER = (
@@ -205,8 +235,8 @@ def render_pattern_card(alert: dict, current_indicators: dict) -> None:
     if signal_type == "bullish":
         entry = resistance or neckline or price
         sl = support or price * 0.96
-        tp1 = entry + (entry - sl) * 1.5 if entry and sl else None
-        tp2 = entry + (entry - sl) * 2.5 if entry and sl else None
+        tp1 = entry + (entry - sl) * 3.0 if entry and sl else None
+        tp2 = entry + (entry - sl) * 5.0 if entry and sl else None
 
         cols = st.columns(2)
         with cols[0]:
@@ -231,8 +261,8 @@ def render_pattern_card(alert: dict, current_indicators: dict) -> None:
     else:  # bearish
         entry = support or neckline or price
         sl = resistance or price * 1.04
-        tp1 = entry - (sl - entry) * 1.5 if entry and sl else None
-        tp2 = entry - (sl - entry) * 2.5 if entry and sl else None
+        tp1 = entry - (sl - entry) * 3.0 if entry and sl else None
+        tp2 = entry - (sl - entry) * 5.0 if entry and sl else None
 
         cols = st.columns(2)
         with cols[0]:
