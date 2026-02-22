@@ -319,7 +319,11 @@ def _bar_width(df: pd.DataFrame) -> pd.Timedelta:
 # ---------------------------------------------------------------------------
 
 def _draw_hs(fig, df, data, signal_type, color):
-    """Head & Shoulders – connecting line through 3 key points."""
+    """
+    Head & Shoulders – connecting line through 3 key points.
+    X-positions come from *_bar indices saved by the detector – guaranteed correct.
+    Falls back to argmax/argmin scan only if indices are missing (old DB records).
+    """
     ls    = data.get("left_shoulder")
     head  = data.get("head")
     rs    = data.get("right_shoulder")
@@ -327,18 +331,24 @@ def _draw_hs(fig, df, data, signal_type, color):
     if not all([ls, head, rs]):
         return
 
-    n      = len(df)
-    scan   = df["high"].values if signal_type == "bearish" else df["low"].values
-    window = min(60, n)
-    segment = scan[-window:]
+    n = len(df)
 
-    if signal_type == "bearish":
-        head_i = int(np.argmax(segment)) + (n - window)
+    raw_ls_i   = data.get("ls_bar")
+    raw_head_i = data.get("head_bar")
+    raw_rs_i   = data.get("rs_bar")
+
+    if raw_ls_i is not None and raw_head_i is not None and raw_rs_i is not None:
+        ls_i   = max(0, min(int(raw_ls_i),   n - 1))
+        head_i = max(0, min(int(raw_head_i), n - 1))
+        rs_i   = max(0, min(int(raw_rs_i),   n - 1))
     else:
-        head_i = int(np.argmin(segment)) + (n - window)
-
-    ls_i = max(0, head_i - window // 3)
-    rs_i = min(n - 1, head_i + window // 3)
+        # Fallback for old DB records
+        scan   = df["high"].values if signal_type == "bearish" else df["low"].values
+        window = min(60, n)
+        segment = scan[-window:]
+        head_i  = (int(np.argmax(segment)) if signal_type == "bearish" else int(np.argmin(segment))) + (n - window)
+        ls_i    = max(0, head_i - window // 3)
+        rs_i    = min(n - 1, head_i + window // 3)
 
     points_x = [_safe_x(df, ls_i), _safe_x(df, head_i), _safe_x(df, rs_i)]
     points_y = [float(ls), float(head), float(rs)]
@@ -369,34 +379,49 @@ def _draw_hs(fig, df, data, signal_type, color):
 
 
 def _draw_double_top_bottom(fig, df, data, signal_type, color):
-    """Mark the two peaks/troughs with annotated dots and a connecting line."""
+    """
+    Mark the two peaks/troughs with annotated dots and a connecting line.
+    X-positions come from *_bar indices saved by the detector – guaranteed correct.
+    Falls back to argrelextrema scan only if indices are missing (old DB records).
+    """
     if signal_type == "bearish":
         p1 = data.get("peak1")
         p2 = data.get("peak2")
         label = "Vrchol"
+        bar1_key, bar2_key = "peak1_bar", "peak2_bar"
     else:
         p1 = data.get("trough1")
         p2 = data.get("trough2")
         label = "Dno"
+        bar1_key, bar2_key = "trough1_bar", "trough2_bar"
 
     if not p1 or not p2:
         return
 
-    n      = len(df)
-    scan   = df["high"].values if signal_type == "bearish" else df["low"].values
-    window = min(80, n)
-    seg    = scan[-window:]
+    n = len(df)
 
-    if signal_type == "bearish":
-        ext = argrelextrema(seg, np.greater_equal, order=5)[0]
-    else:
-        ext = argrelextrema(seg, np.less_equal, order=5)[0]
+    # --- Prefer saved bar indices (exact) ---
+    raw_i1 = data.get(bar1_key)
+    raw_i2 = data.get(bar2_key)
 
-    if len(ext) >= 2:
-        i1 = int(ext[-2]) + (n - window)
-        i2 = int(ext[-1]) + (n - window)
+    if raw_i1 is not None and raw_i2 is not None:
+        # Indices are from the detector's df slice – use directly (clamped to safety)
+        i1 = max(0, min(int(raw_i1), n - 1))
+        i2 = max(0, min(int(raw_i2), n - 1))
     else:
-        i1, i2 = n - 20, n - 5
+        # Fallback for old DB records without bar indices
+        scan   = df["high"].values if signal_type == "bearish" else df["low"].values
+        window = min(80, n)
+        seg    = scan[-window:]
+        if signal_type == "bearish":
+            ext = argrelextrema(seg, np.greater_equal, order=5)[0]
+        else:
+            ext = argrelextrema(seg, np.less_equal, order=5)[0]
+        if len(ext) >= 2:
+            i1 = int(ext[-2]) + (n - window)
+            i2 = int(ext[-1]) + (n - window)
+        else:
+            i1, i2 = n - 20, n - 5
 
     x1, x2 = _safe_x(df, i1), _safe_x(df, i2)
 

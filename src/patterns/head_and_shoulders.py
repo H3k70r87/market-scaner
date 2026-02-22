@@ -89,6 +89,9 @@ class HeadAndShouldersPattern(BasePattern):
                 "left_shoulder": round(float(ls), 4),
                 "head": round(float(head), 4),
                 "right_shoulder": round(float(rs), 4),
+                "ls_bar": int(ls_i),       # index v df pro přesné zakreslení
+                "head_bar": int(head_i),   # index v df pro přesné zakreslení
+                "rs_bar": int(rs_i),       # index v df pro přesné zakreslení
                 "neckline": round(float(neckline), 4),
                 "current_close": round(float(current_close), 4),
                 "support": round(float(neckline), 4),
@@ -136,6 +139,9 @@ class HeadAndShouldersPattern(BasePattern):
                 "left_shoulder": round(float(ls), 4),
                 "head": round(float(head), 4),
                 "right_shoulder": round(float(rs), 4),
+                "ls_bar": int(ls_i),       # index v df pro přesné zakreslení
+                "head_bar": int(head_i),   # index v df pro přesné zakreslení
+                "rs_bar": int(rs_i),       # index v df pro přesné zakreslení
                 "neckline": round(float(neckline), 4),
                 "current_close": round(float(current_close), 4),
                 "support": round(float(head), 4),

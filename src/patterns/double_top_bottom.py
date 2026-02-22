@@ -83,6 +83,8 @@ class DoubleTopBottomPattern(BasePattern):
             {
                 "peak1": round(float(p1), 4),
                 "peak2": round(float(p2), 4),
+                "peak1_bar": int(p1_i),   # index v df pro přesné zakreslení
+                "peak2_bar": int(p2_i),   # index v df pro přesné zakreslení
                 "neckline": round(float(neckline), 4),
                 "current_close": round(float(current_close), 4),
                 "support": round(float(neckline), 4),
@@ -123,6 +125,8 @@ class DoubleTopBottomPattern(BasePattern):
             {
                 "trough1": round(float(t1), 4),
                 "trough2": round(float(t2), 4),
+                "trough1_bar": int(t1_i),   # index v df pro přesné zakreslení
+                "trough2_bar": int(t2_i),   # index v df pro přesné zakreslení
                 "neckline": round(float(neckline), 4),
                 "current_close": round(float(current_close), 4),
                 "support": round(float(avg_trough), 4),
