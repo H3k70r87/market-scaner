@@ -39,8 +39,10 @@ def render_sidebar() -> tuple[str, str, int, list[str]]:
         asset_list.append(sym)
         asset_meta[sym] = {
             "type": "crypto",
-            "exchange": item.get("exchange", "binance"),
+            "exchange": item.get("exchange", "kucoin"),
             "timeframes": item.get("timeframes", ["1h", "4h", "1d"]),
+            "czk_conversion": item.get("czk_conversion", False),
+            "base_symbol": item.get("base_symbol"),
         }
 
     for item in assets_cfg.get("stocks", []):

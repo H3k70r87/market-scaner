@@ -47,10 +47,21 @@ PATTERN_NAMES_CZ = {
 # ---- Cached data loaders ----
 
 @st.cache_data(ttl=300)
-def load_ohlcv(symbol: str, timeframe: str, asset_type: str, exchange: str) -> pd.DataFrame:
+def load_ohlcv(
+    symbol: str,
+    timeframe: str,
+    asset_type: str,
+    exchange: str,
+    czk_conversion: bool = False,
+    base_symbol: str | None = None,
+) -> pd.DataFrame:
     """Fetch OHLCV data with 5-minute cache."""
     try:
-        df = fetch_asset_data(symbol, timeframe, asset_type, exchange)
+        df = fetch_asset_data(
+            symbol, timeframe, asset_type, exchange,
+            czk_conversion=czk_conversion,
+            base_symbol=base_symbol,
+        )
         return df
     except Exception as exc:
         st.warning(f"Chyba při načítání dat: {exc}")
@@ -164,13 +175,15 @@ def main():
 
     meta = st.session_state.get("_asset_meta", {})
     asset_type = meta.get("type", "crypto")
-    exchange = meta.get("exchange", "binance")
+    exchange = meta.get("exchange", "kucoin")
+    czk_conversion = meta.get("czk_conversion", False)
+    base_symbol = meta.get("base_symbol")
 
     _render_sidebar_alerts(asset)
 
     # ---- Load data ----
     with st.spinner(f"Načítám data pro {asset} ({timeframe})…"):
-        df_full = load_ohlcv(asset, timeframe, asset_type, exchange)
+        df_full = load_ohlcv(asset, timeframe, asset_type, exchange, czk_conversion, base_symbol)
 
     if df_full is None or df_full.empty:
         st.error("Nepodařilo se načíst OHLCV data. Zkontroluj připojení nebo změň aktivum.")
