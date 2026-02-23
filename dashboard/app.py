@@ -189,8 +189,11 @@ def main():
         st.error("Nepodařilo se načíst OHLCV data. Zkontroluj připojení nebo změň aktivum.")
         return
 
-    # Slice to requested candle count
-    df = df_full.tail(n_candles).copy()
+    # df_full contains all fetched candles (200) – used for chart so bar indices
+    # from pattern detector (which also works on 200 candles) are always correct.
+    # n_candles from sidebar is kept for metric calculations only (recent close etc.).
+    df = df_full.tail(n_candles).copy()   # for metrics / indicators sidebar display
+    df_chart = df_full.copy()             # always full dataset for chart + pattern overlay
 
     alerts_7d = load_alerts_7d(asset)
     recent_alerts = load_recent_alerts(asset, limit=1)
@@ -212,7 +215,7 @@ def main():
         selected_alert_for_chart = st.session_state.get("_selected_alert_for_chart", latest_alert)
 
         try:
-            fig = create_chart(df, selected_indicators, alert=selected_alert_for_chart)
+            fig = create_chart(df_chart, selected_indicators, alert=selected_alert_for_chart)
             st.plotly_chart(fig, use_container_width=True)
         except Exception as exc:
             st.error(f"Chyba při vykreslování grafu: {exc}")
