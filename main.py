@@ -6,6 +6,12 @@ For each configured asset + timeframe combination:
   1. Fetch OHLCV data
   2. Run all enabled pattern detectors
   3. If confidence > min_confidence AND R/R >= min_rr and not duplicate: save alert + send Telegram message
+
+Conflict resolution (bullish vs bearish coexisting):
+  - Each candidate gets a score = pattern_weight × confidence × rr
+  - The side (bullish/bearish) with the higher total score wins
+  - The winning candidate with the best individual score is sent
+  - A conflict note is appended to the alert so the user knows
 """
 
 import logging
@@ -54,6 +60,27 @@ ALL_PATTERNS = {
     "support_resistance_break": SupportResistancePattern(),
     "ichimoku": IchimokuPattern(),
     "abc_correction": ABCCorrectionPattern(),
+}
+
+# ---------------------------------------------------------------------------
+# Pattern weights for conflict resolution (1 = nejslabší, 10 = nejsilnější)
+#
+# Kritéria:
+#   - Spolehlivost a historická přesnost patternu
+#   - Počet potvrzovacích bodů / LOOKBACK (více svíček = větší kontext)
+#   - Objektivnost vs. subjektivnost detekce
+# ---------------------------------------------------------------------------
+PATTERN_WEIGHTS: dict[str, int] = {
+    "head_and_shoulders":       10,  # 3 potvrzovací body, velký LOOKBACK, klasický reversal
+    "double_top_bottom":         9,  # jasná neckline, 2 symetrické body, spolehlivý reversal
+    "golden_death_cross":        9,  # EMA200 crossover = long-term signál, 210 svíček
+    "triangles":                 8,  # konsolidační pattern, 3+ dotyků, trendová linie
+    "support_resistance_break":  8,  # průlom S/R s volume potvrzením, objektivní
+    "ichimoku":                  7,  # komplexní multi-indikátor, ale lagging
+    "abc_correction":            7,  # Elliott wave, silná logika, ale subjektivnější
+    "bull_bear_flag":            6,  # continuation pattern, kratší LOOKBACK (17 svíček)
+    "rsi_divergence":            5,  # včasný signál, ale hodně false positive
+    "engulfing":                 4,  # jen 2 svíčky = nejmenší kontext
 }
 
 
@@ -185,18 +212,57 @@ def scan_asset(
         })
 
     # -----------------------------------------------------------------------
-    # Phase 2: Conflict check – if bullish AND bearish signals coexist, skip all
+    # Phase 2: Conflict resolution – bullish AND bearish signals coexist
+    #
+    # Scoring: weight × confidence × rr  (higher = stronger signal)
+    # The side with the highest total score wins.
+    # Within the winning side the candidate with the best score is sent.
+    # A conflict_note is injected into its details so Telegram shows it.
     # -----------------------------------------------------------------------
+    conflict_note: Optional[str] = None
+
     if candidates:
         signal_types = {c["result"].type for c in candidates}
         if "bullish" in signal_types and "bearish" in signal_types:
-            bullish_names = [c["pattern_name"] for c in candidates if c["result"].type == "bullish"]
-            bearish_names = [c["pattern_name"] for c in candidates if c["result"].type == "bearish"]
-            logger.warning(
-                "  CONFLICT on %s %s – bullish: %s vs bearish: %s – no alerts sent",
-                symbol, timeframe, bullish_names, bearish_names,
+            # Score every candidate
+            def _score(c: dict) -> float:
+                weight = PATTERN_WEIGHTS.get(c["pattern_name"], 5)
+                conf   = c["result"].confidence
+                rr     = _compute_rr(c["result"].type, c["result"].details, current_price) or 0.0
+                return weight * conf * rr
+
+            scored = [(c, _score(c)) for c in candidates]
+
+            # Total score per side
+            bull_score = sum(s for c, s in scored if c["result"].type == "bullish")
+            bear_score = sum(s for c, s in scored if c["result"].type == "bearish")
+            winning_side = "bullish" if bull_score >= bear_score else "bearish"
+            losing_side  = "bearish" if winning_side == "bullish" else "bullish"
+
+            # Keep only winning side, pick best individual candidate
+            winning_candidates = [(c, s) for c, s in scored if c["result"].type == winning_side]
+            losing_names = [c["pattern_name"] for c, _ in scored if c["result"].type == losing_side]
+
+            # Replace candidates list with only the best from the winning side
+            best_candidate = max(winning_candidates, key=lambda x: x[1])[0]
+            candidates = [best_candidate]
+
+            conflict_note = (
+                f"⚠️ Konfliktní signál: zároveň detekován {losing_side} "
+                f"({', '.join(losing_names)}) – vyhrál {winning_side} "
+                f"(skóre {winning_side[:4]}: {bull_score if winning_side=='bullish' else bear_score:.0f} "
+                f"vs {bull_score if winning_side=='bearish' else bear_score:.0f})"
             )
-            return results  # Return detected patterns for dashboard, but send NO alerts
+
+            bullish_names = [c["pattern_name"] for c, _ in scored if c["result"].type == "bullish"]
+            bearish_names = [c["pattern_name"] for c, _ in scored if c["result"].type == "bearish"]
+            logger.warning(
+                "  CONFLICT on %s %s – bullish: %s (score %.0f) vs bearish: %s (score %.0f) → winner: %s [%s]",
+                symbol, timeframe,
+                bullish_names, bull_score,
+                bearish_names, bear_score,
+                winning_side, best_candidate["pattern_name"],
+            )
 
     # -----------------------------------------------------------------------
     # Phase 3: Dedup check and send alerts
@@ -209,13 +275,18 @@ def scan_asset(
             logger.info("    Duplicate within %dh – skipping", cooldown_hours)
             continue
 
+        # Merge conflict note into details (stored in DB + shown in Telegram)
+        details_with_note = dict(result.details)
+        if conflict_note:
+            details_with_note["conflict_note"] = conflict_note
+
         # Extract key_levels and pattern_data from details for JSONB storage
         key_levels = {
-            k: result.details.get(k)
+            k: details_with_note.get(k)
             for k in ("support", "resistance", "neckline")
-            if result.details.get(k) is not None
+            if details_with_note.get(k) is not None
         }
-        pattern_data = {k: v for k, v in result.details.items()}
+        pattern_data = {k: v for k, v in details_with_note.items()}
 
         # Save to DB
         alert_id = db.save_alert(
@@ -238,7 +309,7 @@ def scan_asset(
             signal_type=result.type,
             confidence=result.confidence,
             price=current_price,
-            details=result.details,
+            details=details_with_note,
         )
 
         if sent and alert_id:

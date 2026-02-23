@@ -122,6 +122,8 @@ def _format_alert_message(
     if support:
         levels_lines += f"  Podpora: {_format_price(float(support), asset)}"
 
+    conflict_note = details.get("conflict_note")
+
     msg = (
         f"{emoji} {signal_label} – {asset} ({timeframe})\n"
         f"📊 Pattern: {pattern_name}\n"
@@ -134,6 +136,9 @@ def _format_alert_message(
 
     if levels_lines:
         msg += f"\n📏 Klíčové úrovně:\n{levels_lines}\n"
+
+    if conflict_note:
+        msg += f"\n{conflict_note}\n"
 
     dashboard_url = _get_dashboard_url()
     if dashboard_url:
