@@ -508,70 +508,86 @@ def _draw_triangle(fig, df, data, signal_type, color):
     """
     Two converging trendlines forming the triangle.
 
-    Bearish (descending triangle): flat support + falling resistance
-      - resistance_start (oldest/highest peak) → resistance (latest/lowest peak)
-    Bullish (ascending triangle): flat resistance + rising support
-      - support_start (oldest/lowest trough) → support (latest/highest trough)
+    Bearish (descending triangle): flat support + falling resistance trendline
+    Bullish (ascending triangle): flat resistance + rising support trendline
 
-    Falls back to ±3% synthetic offset for old DB records without *_start values.
+    Trendline endpoints come from *_start values saved by detector (new alerts).
+    For old DB records without *_start, falls back to scanning df for actual peaks/troughs.
     """
-    n          = len(df)
-    window     = min(50, n)
-    x_start    = _safe_x(df, n - window)
-    x_end      = _safe_x(df, n - 1)
+    n      = len(df)
+    window = min(50, n)
+
     resistance = data.get("resistance")
     support    = data.get("support")
-
     if not resistance or not support:
         return
 
+    x_start = _safe_x(df, n - window)
+    x_end   = _safe_x(df, n - 1)
+
     if signal_type == "bullish":
-        # Flat resistance line (horizontal)
+        # ---- Flat resistance (horizontal) ----
         fig.add_shape(
             type="line", x0=x_start, x1=x_end,
             y0=float(resistance), y1=float(resistance),
             line=dict(color=color, width=2, dash="dash"), row=1, col=1,
         )
-        # Rising support line: support_start (oldest low) → support (latest low)
+
+        # ---- Rising support trendline ----
         support_start = data.get("support_start")
         if support_start:
-            y0_support = float(support_start)
+            y0_s = float(support_start)
+            y1_s = float(support)
         else:
-            # Fallback for old DB records: small fixed offset below current support
-            y0_support = float(support) * 0.985  # ~1.5% below
-        # Clamp to visible range (never below min low of chart)
-        y_min = float(df["low"].min()) * 0.999
-        y0_support = max(y0_support, y_min)
+            # Fallback: find two lowest troughs in the window
+            seg_lows = df["low"].values[-window:]
+            tr_idx   = argrelextrema(seg_lows, np.less_equal, order=4)[0]
+            if len(tr_idx) >= 2:
+                y0_s = float(seg_lows[tr_idx[0]])   # oldest trough
+                y1_s = float(seg_lows[tr_idx[-1]])  # latest trough
+            else:
+                y0_s = float(support) * 0.985
+                y1_s = float(support)
+
         fig.add_shape(
             type="line", x0=x_start, x1=x_end,
-            y0=y0_support, y1=float(support),
+            y0=y0_s, y1=y1_s,
             line=dict(color=color, width=2, dash="dash"), row=1, col=1,
         )
+        apex_y = (float(resistance) + y1_s) / 2
+
     else:
-        # Flat support line (horizontal)
+        # ---- Flat support (horizontal) ----
         fig.add_shape(
             type="line", x0=x_start, x1=x_end,
             y0=float(support), y1=float(support),
             line=dict(color=color, width=2, dash="dash"), row=1, col=1,
         )
-        # Falling resistance line: resistance_start (oldest high) → resistance (latest high)
+
+        # ---- Falling resistance trendline ----
         resistance_start = data.get("resistance_start")
         if resistance_start:
-            y0_resistance = float(resistance_start)
+            y0_r = float(resistance_start)
+            y1_r = float(resistance)
         else:
-            # Fallback for old DB records: small fixed offset above current resistance
-            y0_resistance = float(resistance) * 1.015  # ~1.5% above
-        # Clamp to visible range (never above max high of chart)
-        y_max = float(df["high"].max()) * 1.001
-        y0_resistance = min(y0_resistance, y_max)
+            # Fallback: find two highest peaks in the window
+            seg_highs = df["high"].values[-window:]
+            pk_idx    = argrelextrema(seg_highs, np.greater_equal, order=4)[0]
+            if len(pk_idx) >= 2:
+                y0_r = float(seg_highs[pk_idx[0]])   # oldest (highest) peak
+                y1_r = float(seg_highs[pk_idx[-1]])  # latest (lowest) peak
+            else:
+                y0_r = float(resistance) * 1.015
+                y1_r = float(resistance)
+
         fig.add_shape(
             type="line", x0=x_start, x1=x_end,
-            y0=y0_resistance, y1=float(resistance),
+            y0=y0_r, y1=y1_r,
             line=dict(color=color, width=2, dash="dash"), row=1, col=1,
         )
+        apex_y = (y1_r + float(support)) / 2
 
     # Label at the apex (convergence point)
-    apex_y = (float(resistance) + float(support)) / 2
     fig.add_annotation(
         x=x_end, y=apex_y,
         text="📐 Apex",
