@@ -505,7 +505,16 @@ def _draw_flag(fig, df, data, signal_type, color, color_fill):
 
 
 def _draw_triangle(fig, df, data, signal_type, color):
-    """Two converging trendlines forming the triangle."""
+    """
+    Two converging trendlines forming the triangle.
+
+    Bearish (descending triangle): flat support + falling resistance
+      - resistance_start (oldest/highest peak) → resistance (latest/lowest peak)
+    Bullish (ascending triangle): flat resistance + rising support
+      - support_start (oldest/lowest trough) → support (latest/highest trough)
+
+    Falls back to ±3% synthetic offset for old DB records without *_start values.
+    """
     n          = len(df)
     window     = min(50, n)
     x_start    = _safe_x(df, n - window)
@@ -517,33 +526,45 @@ def _draw_triangle(fig, df, data, signal_type, color):
         return
 
     if signal_type == "bullish":
-        # Flat resistance + rising support
+        # Flat resistance line (horizontal)
         fig.add_shape(
             type="line", x0=x_start, x1=x_end,
             y0=float(resistance), y1=float(resistance),
             line=dict(color=color, width=2, dash="dash"), row=1, col=1,
         )
-        slope_start = float(support) * 0.97
+        # Rising support line: support_start (oldest low) → support (latest low)
+        support_start = data.get("support_start")
+        if support_start:
+            y0_support = float(support_start)
+        else:
+            # Fallback for old DB records
+            y0_support = float(support) * 0.97
         fig.add_shape(
             type="line", x0=x_start, x1=x_end,
-            y0=slope_start, y1=float(support),
+            y0=y0_support, y1=float(support),
             line=dict(color=color, width=2, dash="dash"), row=1, col=1,
         )
     else:
-        # Flat support + falling resistance
+        # Flat support line (horizontal)
         fig.add_shape(
             type="line", x0=x_start, x1=x_end,
             y0=float(support), y1=float(support),
             line=dict(color=color, width=2, dash="dash"), row=1, col=1,
         )
-        slope_start = float(resistance) * 1.03
+        # Falling resistance line: resistance_start (oldest high) → resistance (latest high)
+        resistance_start = data.get("resistance_start")
+        if resistance_start:
+            y0_resistance = float(resistance_start)
+        else:
+            # Fallback for old DB records
+            y0_resistance = float(resistance) * 1.03
         fig.add_shape(
             type="line", x0=x_start, x1=x_end,
-            y0=slope_start, y1=float(resistance),
+            y0=y0_resistance, y1=float(resistance),
             line=dict(color=color, width=2, dash="dash"), row=1, col=1,
         )
 
-    # Label at the apex
+    # Label at the apex (convergence point)
     apex_y = (float(resistance) + float(support)) / 2
     fig.add_annotation(
         x=x_end, y=apex_y,

@@ -81,12 +81,14 @@ class TrianglesPattern(BasePattern):
         confidence = min(100, 60 + flatness_score * 20 + slope_score * 20)
 
         support = float(trough_prices[-1])
+        support_start = float(trough_prices[0])   # nejstarší (nejnižší) trough – začátek stoupající čáry
         return self._result(
             "bullish",
             confidence,
             {
                 "resistance": round(float(resistance_level), 4),
                 "support": round(support, 4),
+                "support_start": round(support_start, 4),  # začátek stoupající support linie
                 "rising_low_slope": round(float(trough_slope), 6),
                 "touches": int(min(len(peak_idx), self.MIN_TOUCHES)),
                 "current_close": round(float(current_close), 4),
@@ -123,13 +125,15 @@ class TrianglesPattern(BasePattern):
         slope_score = min(abs(peak_slope) / highs.mean() * 100, 1.0)
         confidence = min(100, 60 + flatness_score * 20 + slope_score * 20)
 
-        resistance = float(peak_prices[-1])
+        resistance = float(peak_prices[-1])       # poslední (nejnižší) peak – konec klesající čáry
+        resistance_start = float(peak_prices[0])  # nejstarší (nejvyšší) peak – začátek klesající čáry
         return self._result(
             "bearish",
             confidence,
             {
                 "support": round(float(support_level), 4),
                 "resistance": round(resistance, 4),
+                "resistance_start": round(resistance_start, 4),  # začátek klesající resistance linie
                 "falling_high_slope": round(float(peak_slope), 6),
                 "touches": int(min(len(trough_idx), self.MIN_TOUCHES)),
                 "current_close": round(float(current_close), 4),
