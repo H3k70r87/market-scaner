@@ -537,12 +537,11 @@ def _draw_triangle(fig, df, data, signal_type, color):
         if support_start:
             y0_support = float(support_start)
         else:
-            # Fallback for old DB records: derive from slope if available
-            slope = data.get("rising_low_slope")
-            if slope and float(slope) > 0:
-                y0_support = float(support) - float(slope) * window
-            else:
-                y0_support = float(support) * 0.985  # safe ~1.5% below
+            # Fallback for old DB records: small fixed offset below current support
+            y0_support = float(support) * 0.985  # ~1.5% below
+        # Clamp to visible range (never below min low of chart)
+        y_min = float(df["low"].min()) * 0.999
+        y0_support = max(y0_support, y_min)
         fig.add_shape(
             type="line", x0=x_start, x1=x_end,
             y0=y0_support, y1=float(support),
@@ -560,13 +559,11 @@ def _draw_triangle(fig, df, data, signal_type, color):
         if resistance_start:
             y0_resistance = float(resistance_start)
         else:
-            # Fallback for old DB records: derive from slope if available
-            # slope is negative (falling highs), so resistance_start = resistance - slope*window
-            slope = data.get("falling_high_slope")
-            if slope and float(slope) < 0:
-                y0_resistance = float(resistance) - float(slope) * window  # slope<0 → adds positive value
-            else:
-                y0_resistance = float(resistance) * 1.015  # safe ~1.5% above
+            # Fallback for old DB records: small fixed offset above current resistance
+            y0_resistance = float(resistance) * 1.015  # ~1.5% above
+        # Clamp to visible range (never above max high of chart)
+        y_max = float(df["high"].max()) * 1.001
+        y0_resistance = min(y0_resistance, y_max)
         fig.add_shape(
             type="line", x0=x_start, x1=x_end,
             y0=y0_resistance, y1=float(resistance),
