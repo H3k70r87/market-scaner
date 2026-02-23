@@ -41,6 +41,62 @@ PATTERN_NAMES_CZ = {
     "rsi_divergence": "RSI Divergence",
     "engulfing": "Engulfing",
     "support_resistance_break": "S/R Průraz",
+    "ichimoku": "Ichimoku Cloud",
+    "abc_correction": "ABC Korekce",
+}
+
+# Pattern weights (mirrors main.py PATTERN_WEIGHTS – kept in sync manually)
+PATTERN_WEIGHTS = {
+    "head_and_shoulders":       10,
+    "double_top_bottom":         9,
+    "golden_death_cross":        9,
+    "triangles":                 8,
+    "support_resistance_break":  8,
+    "ichimoku":                  7,
+    "abc_correction":            7,
+    "bull_bear_flag":            6,
+    "rsi_divergence":            5,
+    "engulfing":                 4,
+}
+
+# Short descriptions for the Patterny tab
+PATTERN_SHORT_DESC = {
+    "head_and_shoulders":      "3 vrcholy/dna – střední nejvyšší/nejnižší. Klasický reversal.",
+    "double_top_bottom":       "2 symetrické vrcholy/dna s neckline. Spolehlivý reversal.",
+    "golden_death_cross":      "EMA50 kříží EMA200 – dlouhodobý trend. 210 svíček kontext.",
+    "triangles":               "Konvergující trendové čáry – komprese před průrazem.",
+    "support_resistance_break":"Průraz S/R úrovně s potvrzením objemu.",
+    "ichimoku":                "TK Cross + cloud + Chikou – komplexní multi-indikátor.",
+    "abc_correction":          "Elliott Wave ABC korekce – příležitost po konci vlny C.",
+    "bull_bear_flag":          "Silný pohyb + konsolidace – continuation pattern.",
+    "rsi_divergence":          "Divergence ceny a RSI – včasný signál obratu.",
+    "engulfing":               "Pohlcující svíčka – rychlý reversal signál ze 2 svíček.",
+}
+
+PATTERN_TYPE = {
+    "head_and_shoulders":      "Reversal",
+    "double_top_bottom":       "Reversal",
+    "golden_death_cross":      "Trend",
+    "triangles":               "Continuation / Reversal",
+    "support_resistance_break":"Continuation",
+    "ichimoku":                "Trend / Multi",
+    "abc_correction":          "Reversal (Elliott)",
+    "bull_bear_flag":          "Continuation",
+    "rsi_divergence":          "Reversal (Momentum)",
+    "engulfing":               "Reversal (Svíčkový)",
+}
+
+PATTERN_LOOKBACK = {
+    "head_and_shoulders":      "~60 svíček",
+    "double_top_bottom":       "~50 svíček",
+    "golden_death_cross":      "210 svíček",
+    "triangles":               "~40 svíček",
+    "support_resistance_break":"~30 svíček",
+    "ichimoku":                "~52 svíček",
+    "abc_correction":          "~60 svíček",
+    "bull_bear_flag":          "~17 svíček",
+    "rsi_divergence":          "~30 svíček",
+    "engulfing":               "2 svíčky",
 }
 
 
@@ -81,6 +137,15 @@ def load_recent_alerts(asset: str, limit: int = 5) -> list[dict]:
 def load_alerts_7d(asset: str) -> list[dict]:
     try:
         return db.get_alerts_last_n_days(asset, days=7)
+    except Exception:
+        return []
+
+
+@st.cache_data(ttl=60)
+def load_all_alerts_for_stats(asset: str) -> list[dict]:
+    """Fetch up to 200 most recent alerts for a given asset (for Patterny tab stats)."""
+    try:
+        return db.get_recent_alerts(limit=200, asset=asset)
     except Exception:
         return []
 
@@ -207,8 +272,10 @@ def main():
 
     st.markdown("---")
 
-    # ---- Tabs: Graf / Popis / Historie ----
-    tab_chart, tab_desc, tab_history = st.tabs(["📈 Graf", "📖 Pattern popis", "📜 Historie alertů"])
+    # ---- Tabs: Graf / Popis / Historie / Patterny ----
+    tab_chart, tab_desc, tab_history, tab_patterns = st.tabs([
+        "📈 Graf", "📖 Pattern popis", "📜 Historie alertů", "📚 Patterny"
+    ])
 
     with tab_chart:
         # Check if a pattern from history was selected
@@ -234,6 +301,159 @@ def main():
         if selected_from_feed:
             st.session_state["_selected_alert_for_chart"] = selected_from_feed
             st.info(f"Pattern zobrazen v záložce Graf: {PATTERN_NAMES_CZ.get(selected_from_feed.get('pattern',''), '')}")
+
+    with tab_patterns:
+        _render_patterns_tab(asset)
+
+
+def _render_patterns_tab(asset: str) -> None:
+    """Render the Patterny overview tab."""
+    st.markdown("### 📚 Přehled patternů")
+    st.caption(
+        "Přehled všech detekovaných vzorů, jejich váhy při conflict resolution "
+        "a statistiky ze scannerových alertů."
+    )
+
+    # ---- Build static overview table ----
+    rows = []
+    for key in PATTERN_WEIGHTS:
+        rows.append({
+            "Pattern": PATTERN_NAMES_CZ.get(key, key),
+            "Typ": PATTERN_TYPE.get(key, "–"),
+            "Lookback": PATTERN_LOOKBACK.get(key, "–"),
+            "Váha ⚖️": PATTERN_WEIGHTS[key],
+            "Popis": PATTERN_SHORT_DESC.get(key, "–"),
+        })
+
+    df_patterns = pd.DataFrame(rows)
+
+    # Weight bar as colored background via styler
+    def _style_weight(val):
+        pct = int(val / 10 * 100)
+        return (
+            f"background: linear-gradient(90deg, "
+            f"#1f6feb {pct}%, transparent {pct}%);"
+            f"color: white; font-weight: bold; text-align: center;"
+        )
+
+    styled = (
+        df_patterns.style
+        .applymap(_style_weight, subset=["Váha ⚖️"])
+        .set_properties(subset=["Popis"], **{"font-size": "0.85em", "color": "#aaa"})
+        .set_properties(subset=["Pattern"], **{"font-weight": "bold"})
+    )
+
+    st.dataframe(styled, use_container_width=True, hide_index=True)
+
+    st.markdown("---")
+
+    # ---- Statistics from DB ----
+    st.markdown(f"#### 📊 Statistiky alertů – {asset}")
+
+    all_alerts = load_all_alerts_for_stats(asset)
+
+    if not all_alerts:
+        st.info("Pro toto aktivum zatím nejsou žádné alerty v databázi.")
+        return
+
+    df_alerts = pd.DataFrame(all_alerts)
+
+    # Count per pattern
+    st.markdown("**Počet alertů dle patternu**")
+    col_a, col_b = st.columns([2, 1])
+
+    with col_a:
+        pattern_counts = (
+            df_alerts.groupby("pattern")
+            .size()
+            .reset_index(name="Počet")
+            .sort_values("Počet", ascending=False)
+        )
+        pattern_counts["Pattern"] = pattern_counts["pattern"].map(
+            lambda x: PATTERN_NAMES_CZ.get(x, x)
+        )
+        pattern_counts = pattern_counts[["Pattern", "Počet"]]
+        st.dataframe(pattern_counts, use_container_width=True, hide_index=True)
+
+    with col_b:
+        # Bullish vs bearish split
+        st.markdown("**Směr signálů**")
+        type_counts = df_alerts["type"].value_counts()
+        bullish_n = int(type_counts.get("bullish", 0))
+        bearish_n = int(type_counts.get("bearish", 0))
+        total_n = bullish_n + bearish_n
+        if total_n > 0:
+            st.metric("🟢 Bullish", f"{bullish_n}",
+                      delta=f"{bullish_n / total_n * 100:.0f} %")
+            st.metric("🔴 Bearish", f"{bearish_n}",
+                      delta=f"{bearish_n / total_n * 100:.0f} %")
+            st.metric("Celkem alertů", f"{total_n}")
+
+    st.markdown("---")
+
+    # Average confidence per pattern
+    st.markdown("**Průměrná spolehlivost (confidence) dle patternu**")
+    if "confidence" in df_alerts.columns:
+        conf_stats = (
+            df_alerts.groupby("pattern")["confidence"]
+            .agg(["mean", "min", "max", "count"])
+            .reset_index()
+            .sort_values("mean", ascending=False)
+        )
+        conf_stats.columns = ["pattern", "Průměr %", "Min %", "Max %", "Počet"]
+        conf_stats["Pattern"] = conf_stats["pattern"].map(
+            lambda x: PATTERN_NAMES_CZ.get(x, x)
+        )
+        conf_stats["Průměr %"] = conf_stats["Průměr %"].round(1)
+        conf_stats["Min %"] = conf_stats["Min %"].round(1)
+        conf_stats["Max %"] = conf_stats["Max %"].round(1)
+        conf_stats = conf_stats[["Pattern", "Průměr %", "Min %", "Max %", "Počet"]]
+
+        def _style_conf(val):
+            try:
+                v = float(val)
+                if v >= 80:
+                    color = "#238636"
+                elif v >= 65:
+                    color = "#9e6a03"
+                else:
+                    color = "#da3633"
+                return f"color: {color}; font-weight: bold;"
+            except Exception:
+                return ""
+
+        styled_conf = conf_stats.style.applymap(_style_conf, subset=["Průměr %"])
+        st.dataframe(styled_conf, use_container_width=True, hide_index=True)
+
+    st.markdown("---")
+
+    # Conflict resolution legend
+    st.markdown("#### ⚖️ Jak funguje Conflict Resolution")
+    st.markdown(
+        """
+Když scanner detekuje zároveň **bullish** i **bearish** signal na stejném aktivu a timeframe,
+rozhoduje se pomocí skórovacího systému:
+
+```
+skóre = Váha patternu × Confidence (%) × R/R poměr
+```
+
+Strana (bullish / bearish) s **vyšším celkovým skóre** vyhraje.
+Z vítězné strany se odešle **nejsilnější individuální kandidát**.
+Do zprávy se přidá poznámka o protichůdném signálu.
+        """
+    )
+
+    # Weights legend table (compact)
+    weights_df = pd.DataFrame([
+        {"Pattern": PATTERN_NAMES_CZ.get(k, k), "Váha": v}
+        for k, v in PATTERN_WEIGHTS.items()
+    ])
+    st.dataframe(
+        weights_df.style.background_gradient(subset=["Váha"], cmap="Blues"),
+        use_container_width=False,
+        hide_index=True,
+    )
 
 
 if __name__ == "__main__":
