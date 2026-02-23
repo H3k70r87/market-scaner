@@ -537,8 +537,12 @@ def _draw_triangle(fig, df, data, signal_type, color):
         if support_start:
             y0_support = float(support_start)
         else:
-            # Fallback for old DB records
-            y0_support = float(support) * 0.97
+            # Fallback for old DB records: derive from slope if available
+            slope = data.get("rising_low_slope")
+            if slope and float(slope) > 0:
+                y0_support = float(support) - float(slope) * window
+            else:
+                y0_support = float(support) * 0.985  # safe ~1.5% below
         fig.add_shape(
             type="line", x0=x_start, x1=x_end,
             y0=y0_support, y1=float(support),
@@ -556,8 +560,13 @@ def _draw_triangle(fig, df, data, signal_type, color):
         if resistance_start:
             y0_resistance = float(resistance_start)
         else:
-            # Fallback for old DB records
-            y0_resistance = float(resistance) * 1.03
+            # Fallback for old DB records: derive from slope if available
+            # slope is negative (falling highs), so resistance_start = resistance - slope*window
+            slope = data.get("falling_high_slope")
+            if slope and float(slope) < 0:
+                y0_resistance = float(resistance) - float(slope) * window  # slope<0 → adds positive value
+            else:
+                y0_resistance = float(resistance) * 1.015  # safe ~1.5% above
         fig.add_shape(
             type="line", x0=x_start, x1=x_end,
             y0=y0_resistance, y1=float(resistance),
