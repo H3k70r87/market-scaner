@@ -40,13 +40,13 @@ class HeadAndShouldersPattern(BasePattern):
         peak_idx = argrelextrema(highs, np.greater_equal, order=order)[0]
         trough_idx = argrelextrema(lows, np.less_equal, order=order)[0]
 
-        result = self._check_hs(highs, lows, closes, peak_idx, trough_idx)
+        result = self._check_hs(highs, lows, closes, peak_idx, trough_idx, df)
         if result.found:
             return result
 
-        return self._check_inverse_hs(highs, lows, closes, peak_idx, trough_idx)
+        return self._check_inverse_hs(highs, lows, closes, peak_idx, trough_idx, df)
 
-    def _check_hs(self, highs, lows, closes, peak_idx, trough_idx) -> PatternResult:
+    def _check_hs(self, highs, lows, closes, peak_idx, trough_idx, df) -> PatternResult:
         if len(peak_idx) < 3 or len(trough_idx) < 2:
             return self._not_found()
 
@@ -82,6 +82,14 @@ class HeadAndShouldersPattern(BasePattern):
         break_depth = (neckline - current_close) / neckline
         confidence = min(100, 55 + symmetry * 15 + head_prominence * 100 * 5 + min(break_depth * 300, 15))
 
+        # Timestamps for chart rendering – immune to future candle additions
+        try:
+            ls_ts   = str(df.index[ls_i])
+            head_ts = str(df.index[head_i])
+            rs_ts   = str(df.index[rs_i])
+        except Exception:
+            ls_ts = head_ts = rs_ts = None
+
         return self._result(
             "bearish",
             confidence,
@@ -89,9 +97,12 @@ class HeadAndShouldersPattern(BasePattern):
                 "left_shoulder": round(float(ls), 4),
                 "head": round(float(head), 4),
                 "right_shoulder": round(float(rs), 4),
-                "ls_bar": int(ls_i),       # index v df pro přesné zakreslení
-                "head_bar": int(head_i),   # index v df pro přesné zakreslení
-                "rs_bar": int(rs_i),       # index v df pro přesné zakreslení
+                "ls_bar": int(ls_i),
+                "head_bar": int(head_i),
+                "rs_bar": int(rs_i),
+                "ls_ts": ls_ts,       # timestamp levého ramene
+                "head_ts": head_ts,   # timestamp hlavy
+                "rs_ts": rs_ts,       # timestamp pravého ramene
                 "neckline": round(float(neckline), 4),
                 "current_close": round(float(current_close), 4),
                 "support": round(float(neckline), 4),
@@ -99,7 +110,7 @@ class HeadAndShouldersPattern(BasePattern):
             },
         )
 
-    def _check_inverse_hs(self, highs, lows, closes, peak_idx, trough_idx) -> PatternResult:
+    def _check_inverse_hs(self, highs, lows, closes, peak_idx, trough_idx, df) -> PatternResult:
         if len(trough_idx) < 3 or len(peak_idx) < 2:
             return self._not_found()
 
@@ -132,6 +143,14 @@ class HeadAndShouldersPattern(BasePattern):
         break_height = (current_close - neckline) / neckline
         confidence = min(100, 55 + symmetry * 15 + head_depth * 100 * 5 + min(break_height * 300, 15))
 
+        # Timestamps for chart rendering – immune to future candle additions
+        try:
+            ls_ts   = str(df.index[ls_i])
+            head_ts = str(df.index[head_i])
+            rs_ts   = str(df.index[rs_i])
+        except Exception:
+            ls_ts = head_ts = rs_ts = None
+
         return self._result(
             "bullish",
             confidence,
@@ -139,9 +158,12 @@ class HeadAndShouldersPattern(BasePattern):
                 "left_shoulder": round(float(ls), 4),
                 "head": round(float(head), 4),
                 "right_shoulder": round(float(rs), 4),
-                "ls_bar": int(ls_i),       # index v df pro přesné zakreslení
-                "head_bar": int(head_i),   # index v df pro přesné zakreslení
-                "rs_bar": int(rs_i),       # index v df pro přesné zakreslení
+                "ls_bar": int(ls_i),
+                "head_bar": int(head_i),
+                "rs_bar": int(rs_i),
+                "ls_ts": ls_ts,       # timestamp levého ramene
+                "head_ts": head_ts,   # timestamp hlavy
+                "rs_ts": rs_ts,       # timestamp pravého ramene
                 "neckline": round(float(neckline), 4),
                 "current_close": round(float(current_close), 4),
                 "support": round(float(head), 4),

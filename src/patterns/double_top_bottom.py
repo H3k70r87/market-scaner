@@ -39,15 +39,15 @@ class DoubleTopBottomPattern(BasePattern):
         trough_idx = argrelextrema(lows, np.less_equal, order=order)[0]
 
         # --- Double Top ---
-        result = self._check_double_top(highs, lows, closes, peak_idx, trough_idx)
+        result = self._check_double_top(highs, lows, closes, peak_idx, trough_idx, df)
         if result.found:
             return result
 
         # --- Double Bottom ---
-        result = self._check_double_bottom(highs, lows, closes, peak_idx, trough_idx)
+        result = self._check_double_bottom(highs, lows, closes, peak_idx, trough_idx, df)
         return result
 
-    def _check_double_top(self, highs, lows, closes, peak_idx, trough_idx) -> PatternResult:
+    def _check_double_top(self, highs, lows, closes, peak_idx, trough_idx, df) -> PatternResult:
         if len(peak_idx) < 2 or len(trough_idx) < 1:
             return self._not_found()
 
@@ -77,14 +77,23 @@ class DoubleTopBottomPattern(BasePattern):
         break_depth = (neckline - current_close) / neckline
         confidence = min(100, 60 + peak_similarity * 20 + min(break_depth * 200, 20))
 
+        # Timestamps for chart rendering – immune to future candle additions
+        try:
+            ts1 = str(df.index[p1_i])
+            ts2 = str(df.index[p2_i])
+        except Exception:
+            ts1 = ts2 = None
+
         return self._result(
             "bearish",
             confidence,
             {
                 "peak1": round(float(p1), 4),
                 "peak2": round(float(p2), 4),
-                "peak1_bar": int(p1_i),   # index v df pro přesné zakreslení
-                "peak2_bar": int(p2_i),   # index v df pro přesné zakreslení
+                "peak1_bar": int(p1_i),
+                "peak2_bar": int(p2_i),
+                "peak1_ts": ts1,   # timestamp svíčky 1. vrcholu
+                "peak2_ts": ts2,   # timestamp svíčky 2. vrcholu
                 "neckline": round(float(neckline), 4),
                 "current_close": round(float(current_close), 4),
                 "support": round(float(neckline), 4),
@@ -92,7 +101,7 @@ class DoubleTopBottomPattern(BasePattern):
             },
         )
 
-    def _check_double_bottom(self, highs, lows, closes, peak_idx, trough_idx) -> PatternResult:
+    def _check_double_bottom(self, highs, lows, closes, peak_idx, trough_idx, df) -> PatternResult:
         if len(trough_idx) < 2 or len(peak_idx) < 1:
             return self._not_found()
 
@@ -119,14 +128,23 @@ class DoubleTopBottomPattern(BasePattern):
         break_height = (current_close - neckline) / neckline
         confidence = min(100, 60 + trough_similarity * 20 + min(break_height * 200, 20))
 
+        # Timestamps for chart rendering – immune to future candle additions
+        try:
+            ts1 = str(df.index[t1_i])
+            ts2 = str(df.index[t2_i])
+        except Exception:
+            ts1 = ts2 = None
+
         return self._result(
             "bullish",
             confidence,
             {
                 "trough1": round(float(t1), 4),
                 "trough2": round(float(t2), 4),
-                "trough1_bar": int(t1_i),   # index v df pro přesné zakreslení
-                "trough2_bar": int(t2_i),   # index v df pro přesné zakreslení
+                "trough1_bar": int(t1_i),
+                "trough2_bar": int(t2_i),
+                "trough1_ts": ts1,   # timestamp svíčky 1. dna
+                "trough2_ts": ts2,   # timestamp svíčky 2. dna
                 "neckline": round(float(neckline), 4),
                 "current_close": round(float(current_close), 4),
                 "support": round(float(avg_trough), 4),

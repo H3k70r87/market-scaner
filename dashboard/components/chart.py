@@ -307,6 +307,26 @@ def _safe_x(df: pd.DataFrame, idx: int):
     return df.index[idx]
 
 
+def _ts_to_x(df: pd.DataFrame, ts_str: str, fallback_idx: int | None = None):
+    """
+    Convert a saved timestamp string to the corresponding df.index value.
+    Falls back to _safe_x(df, fallback_idx) if the timestamp is not found.
+    This is robust to new candles being added after the alert was saved.
+    """
+    if ts_str:
+        try:
+            ts = pd.Timestamp(ts_str)
+            # Find nearest index (exact or closest)
+            pos = df.index.get_indexer([ts], method="nearest")[0]
+            if 0 <= pos < len(df):
+                return df.index[pos]
+        except Exception:
+            pass
+    if fallback_idx is not None:
+        return _safe_x(df, fallback_idx)
+    return df.index[-1]
+
+
 def _bar_width(df: pd.DataFrame) -> pd.Timedelta:
     """Approximate single-bar width for rectangle x-offsets."""
     if len(df) >= 2:
@@ -333,24 +353,35 @@ def _draw_hs(fig, df, data, signal_type, color):
 
     n = len(df)
 
+    # Prefer timestamps (exact, immune to new candles) → fallback to bar index → fallback to scan
+    ls_ts      = data.get("ls_ts")
+    head_ts    = data.get("head_ts")
+    rs_ts      = data.get("rs_ts")
     raw_ls_i   = data.get("ls_bar")
     raw_head_i = data.get("head_bar")
     raw_rs_i   = data.get("rs_bar")
 
-    if raw_ls_i is not None and raw_head_i is not None and raw_rs_i is not None:
-        ls_i   = max(0, min(int(raw_ls_i),   n - 1))
-        head_i = max(0, min(int(raw_head_i), n - 1))
-        rs_i   = max(0, min(int(raw_rs_i),   n - 1))
+    if ls_ts or head_ts or rs_ts:
+        x_ls   = _ts_to_x(df, ls_ts,   int(raw_ls_i)   if raw_ls_i   is not None else None)
+        x_head = _ts_to_x(df, head_ts, int(raw_head_i) if raw_head_i is not None else None)
+        x_rs   = _ts_to_x(df, rs_ts,   int(raw_rs_i)   if raw_rs_i   is not None else None)
+    elif raw_ls_i is not None and raw_head_i is not None and raw_rs_i is not None:
+        x_ls   = _safe_x(df, max(0, min(int(raw_ls_i),   n - 1)))
+        x_head = _safe_x(df, max(0, min(int(raw_head_i), n - 1)))
+        x_rs   = _safe_x(df, max(0, min(int(raw_rs_i),   n - 1)))
     else:
-        # Fallback for old DB records
-        scan   = df["high"].values if signal_type == "bearish" else df["low"].values
-        window = min(60, n)
+        # Fallback for very old DB records without any index info
+        scan    = df["high"].values if signal_type == "bearish" else df["low"].values
+        window  = min(60, n)
         segment = scan[-window:]
         head_i  = (int(np.argmax(segment)) if signal_type == "bearish" else int(np.argmin(segment))) + (n - window)
         ls_i    = max(0, head_i - window // 3)
         rs_i    = min(n - 1, head_i + window // 3)
+        x_ls   = _safe_x(df, ls_i)
+        x_head = _safe_x(df, head_i)
+        x_rs   = _safe_x(df, rs_i)
 
-    points_x = [_safe_x(df, ls_i), _safe_x(df, head_i), _safe_x(df, rs_i)]
+    points_x = [x_ls, x_head, x_rs]
     points_y = [float(ls), float(head), float(rs)]
 
     # Connecting line through the three shoulder/head points
@@ -389,27 +420,33 @@ def _draw_double_top_bottom(fig, df, data, signal_type, color):
         p2 = data.get("peak2")
         label = "Vrchol"
         bar1_key, bar2_key = "peak1_bar", "peak2_bar"
+        ts1_key, ts2_key   = "peak1_ts",  "peak2_ts"
     else:
         p1 = data.get("trough1")
         p2 = data.get("trough2")
         label = "Dno"
         bar1_key, bar2_key = "trough1_bar", "trough2_bar"
+        ts1_key, ts2_key   = "trough1_ts",  "trough2_ts"
 
     if not p1 or not p2:
         return
 
     n = len(df)
 
-    # --- Prefer saved bar indices (exact) ---
+    # Prefer timestamps (exact, immune to new candles) → fallback to bar index → fallback to scan
+    ts1    = data.get(ts1_key)
+    ts2    = data.get(ts2_key)
     raw_i1 = data.get(bar1_key)
     raw_i2 = data.get(bar2_key)
 
-    if raw_i1 is not None and raw_i2 is not None:
-        # Indices are from the detector's df slice – use directly (clamped to safety)
-        i1 = max(0, min(int(raw_i1), n - 1))
-        i2 = max(0, min(int(raw_i2), n - 1))
+    if ts1 or ts2:
+        x1 = _ts_to_x(df, ts1, int(raw_i1) if raw_i1 is not None else None)
+        x2 = _ts_to_x(df, ts2, int(raw_i2) if raw_i2 is not None else None)
+    elif raw_i1 is not None and raw_i2 is not None:
+        x1 = _safe_x(df, max(0, min(int(raw_i1), n - 1)))
+        x2 = _safe_x(df, max(0, min(int(raw_i2), n - 1)))
     else:
-        # Fallback for old DB records without bar indices
+        # Fallback for old DB records without any position info
         scan   = df["high"].values if signal_type == "bearish" else df["low"].values
         window = min(80, n)
         seg    = scan[-window:]
@@ -418,12 +455,11 @@ def _draw_double_top_bottom(fig, df, data, signal_type, color):
         else:
             ext = argrelextrema(seg, np.less_equal, order=5)[0]
         if len(ext) >= 2:
-            i1 = int(ext[-2]) + (n - window)
-            i2 = int(ext[-1]) + (n - window)
+            x1 = _safe_x(df, int(ext[-2]) + (n - window))
+            x2 = _safe_x(df, int(ext[-1]) + (n - window))
         else:
-            i1, i2 = n - 20, n - 5
-
-    x1, x2 = _safe_x(df, i1), _safe_x(df, i2)
+            x1 = _safe_x(df, n - 20)
+            x2 = _safe_x(df, n - 5)
 
     # Connecting line between the two points
     fig.add_trace(
