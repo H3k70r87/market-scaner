@@ -20,6 +20,8 @@ PATTERN_NAMES_CZ = {
     "rsi_divergence": "RSI Divergence",
     "engulfing": "Engulfing",
     "support_resistance_break": "S/R Průraz",
+    "ichimoku": "Ichimoku Cloud",
+    "abc_correction": "ABC Korekce",
 }
 
 
@@ -33,6 +35,22 @@ def _load_alerts(asset: str, timeframe: str, pattern: str, date_from: str, date_
         date_to=date_to or None,
         limit=200,
     )
+
+
+def _fmt(val, price: float) -> str:
+    """Format a price value based on magnitude of the detection price."""
+    if val is None:
+        return "–"
+    try:
+        v = float(val)
+        if price > 1000:
+            return f"{v:,.0f}"
+        elif price > 1:
+            return f"{v:,.2f}"
+        else:
+            return f"{v:.6f}"
+    except Exception:
+        return "–"
 
 
 def render_alert_feed(asset: str) -> Optional[dict]:
@@ -76,7 +94,7 @@ def render_alert_feed(asset: str) -> Optional[dict]:
     date_from = (now - timedelta(days=days)).isoformat() if days > 0 else ""
     date_to = ""
 
-    tf_val = "" if tf_filter == "Vše" else tf_filter
+    tf_val      = "" if tf_filter == "Vše" else tf_filter
     pattern_val = "" if pattern_filter == "Vše" else pattern_filter
 
     # ---- Load data ----
@@ -89,18 +107,33 @@ def render_alert_feed(asset: str) -> Optional[dict]:
     # ---- Build DataFrame ----
     rows = []
     for a in alerts:
-        emoji = "🟢" if a.get("type") == "bullish" else "🔴" if a.get("type") == "bearish" else "⚠️"
-        ts = (a.get("detected_at") or "")[:16].replace("T", " ")
+        emoji   = "🟢" if a.get("type") == "bullish" else "🔴" if a.get("type") == "bearish" else "⚠️"
+        ts      = (a.get("detected_at") or "")[:16].replace("T", " ")
+        price   = float(a.get("price", 0))
+        pd_data = a.get("pattern_data") or {}
+        kl_data = a.get("key_levels")   or {}
+        levels  = {**pd_data, **kl_data}
+
+        entry_val = levels.get("entry")
+        sl_val    = levels.get("sl")
+        tp1_val   = levels.get("tp1")
+        tp2_val   = levels.get("tp2")
+        rr_val    = levels.get("rr")
+
         rows.append({
-            "": emoji,
-            "Datum": ts,
-            "Asset": a.get("asset", ""),
-            "TF": a.get("timeframe", ""),
+            "":        emoji,
+            "Datum":   ts,
+            "TF":      a.get("timeframe", ""),
             "Pattern": PATTERN_NAMES_CZ.get(a.get("pattern", ""), a.get("pattern", "")),
-            "Typ": (a.get("type") or "").capitalize(),
-            "Conf %": float(a.get("confidence", 0)),
-            "Cena": float(a.get("price", 0)),
-            "_id": a.get("id"),
+            "Směr":    (a.get("type") or "").capitalize(),
+            "Conf %":  float(a.get("confidence", 0)),
+            "Cena":    price,
+            "Vstup":   _fmt(entry_val, price),
+            "SL":      _fmt(sl_val, price),
+            "TP1":     _fmt(tp1_val, price),
+            "TP2":     _fmt(tp2_val, price),
+            "R/R":     f"1:{float(rr_val):.1f}" if rr_val else "–",
+            "_id":     a.get("id"),
         })
 
     df = pd.DataFrame(rows)
@@ -108,13 +141,17 @@ def render_alert_feed(asset: str) -> Optional[dict]:
 
     # ---- Colour styling ----
     def row_color(row):
-        if row["Typ"] == "Bullish":
+        if row["Směr"] == "Bullish":
             return ["background-color: rgba(38,166,154,0.15)"] * len(row)
-        elif row["Typ"] == "Bearish":
+        elif row["Směr"] == "Bearish":
             return ["background-color: rgba(239,83,80,0.15)"] * len(row)
         return [""] * len(row)
 
-    styled = display_df.style.apply(row_color, axis=1).format({"Conf %": "{:.0f}", "Cena": "{:,.4f}"})
+    styled = (
+        display_df.style
+        .apply(row_color, axis=1)
+        .format({"Conf %": "{:.0f}", "Cena": "{:,.4f}"})
+    )
 
     # ---- Selection ----
     selected_idx = st.dataframe(
@@ -126,13 +163,18 @@ def render_alert_feed(asset: str) -> Optional[dict]:
         key="alert_feed_table",
     )
 
+    # ---- Legend ----
+    st.caption(
+        "💡 Vstup, SL, TP1, TP2 jsou hodnoty **v době detekce patternu** (uložené scannerem). "
+        "Starší alerty (před touto aktualizací) tyto hodnoty nemají (zobrazí se –)."
+    )
+
     # Return the selected alert dict
-    sel = selected_idx.get("selection", {}) if isinstance(selected_idx, dict) else {}
+    sel      = selected_idx.get("selection", {}) if isinstance(selected_idx, dict) else {}
     rows_sel = sel.get("rows", [])
     if rows_sel:
         selected_row_idx = rows_sel[0]
         alert_id = df.iloc[selected_row_idx]["_id"]
-        # Find the full alert
         for a in alerts:
             if a.get("id") == alert_id:
                 return a

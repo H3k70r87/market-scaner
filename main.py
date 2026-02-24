@@ -89,30 +89,44 @@ def load_config(path: str = "config.yaml") -> dict:
         return yaml.safe_load(f)
 
 
-def _compute_rr(signal_type: str, details: dict, current_price: float) -> Optional[float]:
+def _compute_trade_levels(
+    signal_type: str, details: dict, current_price: float
+) -> dict:
     """
-    Compute Risk/Reward ratio from pattern details.
-    Returns the ratio as a float (e.g. 3.0 means R/R = 1:3) or None if not computable.
+    Compute entry, SL, TP1, TP2 and R/R from pattern details.
+    Returns a dict with keys: entry, sl, tp1, tp2, rr  (floats, or None if not computable).
     """
-    support = details.get("support")
+    support    = details.get("support")
     resistance = details.get("resistance")
-    neckline = details.get("neckline")
+    neckline   = details.get("neckline")
 
     if signal_type == "bullish":
-        entry = resistance or neckline or current_price
-        sl = support or current_price * 0.96
-        tp1 = entry + (entry - sl) * 3.0
+        entry = float(resistance or neckline or current_price)
+        sl    = float(support    or current_price * 0.96)
+        tp1   = entry + (entry - sl) * 3.0
+        tp2   = entry + (entry - sl) * 5.0
     else:  # bearish
-        entry = support or neckline or current_price
-        sl = resistance or current_price * 1.04
-        tp1 = entry - (sl - entry) * 3.0
+        entry = float(support    or neckline or current_price)
+        sl    = float(resistance or current_price * 1.04)
+        tp1   = entry - (sl - entry) * 3.0
+        tp2   = entry - (sl - entry) * 5.0
 
-    risk = abs(entry - sl)
+    risk   = abs(entry - sl)
     reward = abs(tp1 - entry)
+    rr     = (reward / risk) if risk > 0 else None
 
-    if risk == 0:
-        return None
-    return reward / risk
+    return {
+        "entry": round(entry, 8),
+        "sl":    round(sl,    8),
+        "tp1":   round(tp1,   8),
+        "tp2":   round(tp2,   8),
+        "rr":    round(rr, 4) if rr is not None else None,
+    }
+
+
+def _compute_rr(signal_type: str, details: dict, current_price: float) -> Optional[float]:
+    """Thin wrapper – returns only the R/R float (backward-compat for scoring)."""
+    return _compute_trade_levels(signal_type, details, current_price)["rr"]
 
 
 def scan_asset(
@@ -279,6 +293,10 @@ def scan_asset(
         details_with_note = dict(result.details)
         if conflict_note:
             details_with_note["conflict_note"] = conflict_note
+
+        # Compute and store trade levels (entry, SL, TP1, TP2, R/R) at detection time
+        trade_levels = _compute_trade_levels(result.type, result.details, current_price)
+        details_with_note.update(trade_levels)
 
         # Extract key_levels and pattern_data from details for JSONB storage
         key_levels = {
