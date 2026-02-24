@@ -19,7 +19,7 @@ assets:
       exchange: "kucoin"
       base_symbol: "BTC/USDT"
       czk_conversion: true
-      timeframes: ["4h", "1d"]
+      timeframes: ["1h", "4h", "1d"]
     - symbol: "ETH/CZK"
       exchange: "kucoin"
       base_symbol: "ETH/USDT"
