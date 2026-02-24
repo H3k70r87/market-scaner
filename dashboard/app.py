@@ -338,7 +338,7 @@ def _render_patterns_tab(asset: str) -> None:
 
     styled = (
         df_patterns.style
-        .applymap(_style_weight, subset=["Váha ⚖️"])
+        .map(_style_weight, subset=["Váha ⚖️"])
         .set_properties(subset=["Popis"], **{"font-size": "0.85em", "color": "#aaa"})
         .set_properties(subset=["Pattern"], **{"font-weight": "bold"})
     )
@@ -422,7 +422,7 @@ def _render_patterns_tab(asset: str) -> None:
             except Exception:
                 return ""
 
-        styled_conf = conf_stats.style.applymap(_style_conf, subset=["Průměr %"])
+        styled_conf = conf_stats.style.map(_style_conf, subset=["Průměr %"])
         st.dataframe(styled_conf, use_container_width=True, hide_index=True)
 
     st.markdown("---")
@@ -444,13 +444,21 @@ Do zprávy se přidá poznámka o protichůdném signálu.
         """
     )
 
-    # Weights legend table (compact)
+    # Weights legend table (compact) – no matplotlib dependency
     weights_df = pd.DataFrame([
         {"Pattern": PATTERN_NAMES_CZ.get(k, k), "Váha": v}
         for k, v in PATTERN_WEIGHTS.items()
     ])
+
+    def _style_weight_bar(val):
+        pct = int(val / 10 * 100)
+        return (
+            f"background: linear-gradient(90deg, #1f6feb {pct}%, #0d1117 {pct}%);"
+            f"color: white; font-weight: bold; text-align: center;"
+        )
+
     st.dataframe(
-        weights_df.style.background_gradient(subset=["Váha"], cmap="Blues"),
+        weights_df.style.map(_style_weight_bar, subset=["Váha"]),
         use_container_width=False,
         hide_index=True,
     )
