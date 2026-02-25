@@ -386,21 +386,15 @@ def _draw_hs(fig, df, data, signal_type, color):
         except Exception:
             return False
 
-    if _ts_valid(ls_ts) and _ts_valid(head_ts) and _ts_valid(rs_ts):
-        x_ls   = _ts_to_x(df, ls_ts)
-        x_head = _ts_to_x(df, head_ts)
-        x_rs   = _ts_to_x(df, rs_ts)
-    else:
-        # Price-based search – always lands on a real candle in the visible chart
-        x_head = _price_to_x(df, float(head), col=price_col)
-        x_ls   = _price_to_x(df, float(ls),   col=price_col)
-        x_rs   = _price_to_x(df, float(rs),   col=price_col)
-        # Enforce temporal order: ls < head < rs
-        head_pos = df.index.get_loc(x_head)
-        ls_pos   = max(0, head_pos - max(8, n // 8))
-        rs_pos   = min(n - 1, head_pos + max(8, n // 8))
-        x_ls = df.index[ls_pos]
-        x_rs = df.index[rs_pos]
+    # Only draw shoulder/head markers when ALL timestamps are within the visible df.
+    # For old alerts outside the 200-candle window, skip markers entirely –
+    # the neckline horizontal line already conveys the key information.
+    if not (_ts_valid(ls_ts) and _ts_valid(head_ts) and _ts_valid(rs_ts)):
+        return
+
+    x_ls   = _ts_to_x(df, ls_ts)
+    x_head = _ts_to_x(df, head_ts)
+    x_rs   = _ts_to_x(df, rs_ts)
 
     points_x = [x_ls, x_head, x_rs]
     points_y = [float(ls), float(head), float(rs)]
@@ -460,25 +454,25 @@ def _draw_double_top_bottom(fig, df, data, signal_type, color):
     ts1 = data.get(ts1_key)
     ts2 = data.get(ts2_key)
 
-    # --- Try timestamp first (only if within df time range) ---
-    x1_from_ts = _ts_to_x(df, ts1) if ts1 else None
-    x2_from_ts = _ts_to_x(df, ts2) if ts2 else None
+    def _ts_in_range(ts_str: str) -> bool:
+        if not ts_str:
+            return False
+        try:
+            ts = pd.Timestamp(ts_str)
+            return df.index[0] <= ts <= df.index[-1]
+        except Exception:
+            return False
 
-    # _ts_to_x returns df.index[-1] when timestamp is out of range – detect that
-    ts_in_range = (ts1 or ts2) and (x1_from_ts != df.index[-1] or x2_from_ts != df.index[-1])
+    # Only draw peak markers when BOTH timestamps are within the visible df range.
+    # If the alert is older than ~200 candles (the window), we can't reliably
+    # reconstruct where the peaks were – so skip the markers entirely.
+    # The neckline/resistance horizontal lines are already drawn above and
+    # give enough context without misleading peak dots.
+    if not (_ts_in_range(ts1) and _ts_in_range(ts2)):
+        return
 
-    if ts_in_range:
-        x1, x2 = x1_from_ts, x2_from_ts
-    else:
-        # --- Price-based search: always lands on a real candle in the chart ---
-        x1 = _price_to_x(df, float(p1), col=price_col)
-        x2 = _price_to_x(df, float(p2), col=price_col)
-        # Ensure x1 is to the left of x2 (p1 is the older peak)
-        if x1 >= x2:
-            # Push x1 further back if both land on the same candle
-            idx2 = df.index.get_loc(x2)
-            idx1 = max(0, idx2 - max(10, n // 6))
-            x1 = df.index[idx1]
+    x1 = _ts_to_x(df, ts1)
+    x2 = _ts_to_x(df, ts2)
 
     # Connecting line between the two points
     fig.add_trace(
