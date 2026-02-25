@@ -310,21 +310,36 @@ def _safe_x(df: pd.DataFrame, idx: int):
 def _ts_to_x(df: pd.DataFrame, ts_str: str, fallback_idx: int | None = None):
     """
     Convert a saved timestamp string to the corresponding df.index value.
-    Falls back to _safe_x(df, fallback_idx) if the timestamp is not found.
-    This is robust to new candles being added after the alert was saved.
+    Only uses the timestamp if it falls within the df's time range.
+    Falls back to _safe_x(df, fallback_idx) if outside range or not found.
     """
     if ts_str:
         try:
             ts = pd.Timestamp(ts_str)
-            # Find nearest index (exact or closest)
-            pos = df.index.get_indexer([ts], method="nearest")[0]
-            if 0 <= pos < len(df):
-                return df.index[pos]
+            # Only use timestamp if it's within the visible df range
+            if df.index[0] <= ts <= df.index[-1]:
+                pos = df.index.get_indexer([ts], method="nearest")[0]
+                if 0 <= pos < len(df):
+                    return df.index[pos]
         except Exception:
             pass
     if fallback_idx is not None:
         return _safe_x(df, fallback_idx)
     return df.index[-1]
+
+
+def _price_to_x(df: pd.DataFrame, price: float, col: str = "high") -> object:
+    """
+    Find the candle whose high/low is closest to `price` and return its index value.
+    This is the most robust fallback – works regardless of when the alert was saved,
+    because the price value stored in DB never changes.
+    Used when timestamp is outside the visible df range (old alerts).
+    """
+    try:
+        idx = (df[col] - price).abs().idxmin()
+        return idx
+    except Exception:
+        return df.index[-1]
 
 
 def _bar_width(df: pd.DataFrame) -> pd.Timedelta:
@@ -341,45 +356,51 @@ def _bar_width(df: pd.DataFrame) -> pd.Timedelta:
 def _draw_hs(fig, df, data, signal_type, color):
     """
     Head & Shoulders – connecting line through 3 key points.
-    X-positions come from *_bar indices saved by the detector – guaranteed correct.
-    Falls back to argmax/argmin scan only if indices are missing (old DB records).
+
+    Position priority (most → least reliable):
+    1. Timestamp within df range  → exact candle
+    2. Price-based search         → candle whose high/low is closest to saved price
+       (always within visible chart, immune to bar index drift)
     """
-    ls    = data.get("left_shoulder")
-    head  = data.get("head")
-    rs    = data.get("right_shoulder")
+    ls   = data.get("left_shoulder")
+    head = data.get("head")
+    rs   = data.get("right_shoulder")
 
     if not all([ls, head, rs]):
         return
 
     n = len(df)
+    price_col = "high" if signal_type == "bearish" else "low"
 
-    # Prefer timestamps (exact, immune to new candles) → fallback to bar index → fallback to scan
-    ls_ts      = data.get("ls_ts")
-    head_ts    = data.get("head_ts")
-    rs_ts      = data.get("rs_ts")
-    raw_ls_i   = data.get("ls_bar")
-    raw_head_i = data.get("head_bar")
-    raw_rs_i   = data.get("rs_bar")
+    ls_ts   = data.get("ls_ts")
+    head_ts = data.get("head_ts")
+    rs_ts   = data.get("rs_ts")
 
-    if ls_ts or head_ts or rs_ts:
-        x_ls   = _ts_to_x(df, ls_ts,   int(raw_ls_i)   if raw_ls_i   is not None else None)
-        x_head = _ts_to_x(df, head_ts, int(raw_head_i) if raw_head_i is not None else None)
-        x_rs   = _ts_to_x(df, rs_ts,   int(raw_rs_i)   if raw_rs_i   is not None else None)
-    elif raw_ls_i is not None and raw_head_i is not None and raw_rs_i is not None:
-        x_ls   = _safe_x(df, max(0, min(int(raw_ls_i),   n - 1)))
-        x_head = _safe_x(df, max(0, min(int(raw_head_i), n - 1)))
-        x_rs   = _safe_x(df, max(0, min(int(raw_rs_i),   n - 1)))
+    # Check if timestamps are within the visible df range
+    def _ts_valid(ts_str):
+        if not ts_str:
+            return False
+        try:
+            ts = pd.Timestamp(ts_str)
+            return df.index[0] <= ts <= df.index[-1]
+        except Exception:
+            return False
+
+    if _ts_valid(ls_ts) and _ts_valid(head_ts) and _ts_valid(rs_ts):
+        x_ls   = _ts_to_x(df, ls_ts)
+        x_head = _ts_to_x(df, head_ts)
+        x_rs   = _ts_to_x(df, rs_ts)
     else:
-        # Fallback for very old DB records without any index info
-        scan    = df["high"].values if signal_type == "bearish" else df["low"].values
-        window  = min(60, n)
-        segment = scan[-window:]
-        head_i  = (int(np.argmax(segment)) if signal_type == "bearish" else int(np.argmin(segment))) + (n - window)
-        ls_i    = max(0, head_i - window // 3)
-        rs_i    = min(n - 1, head_i + window // 3)
-        x_ls   = _safe_x(df, ls_i)
-        x_head = _safe_x(df, head_i)
-        x_rs   = _safe_x(df, rs_i)
+        # Price-based search – always lands on a real candle in the visible chart
+        x_head = _price_to_x(df, float(head), col=price_col)
+        x_ls   = _price_to_x(df, float(ls),   col=price_col)
+        x_rs   = _price_to_x(df, float(rs),   col=price_col)
+        # Enforce temporal order: ls < head < rs
+        head_pos = df.index.get_loc(x_head)
+        ls_pos   = max(0, head_pos - max(8, n // 8))
+        rs_pos   = min(n - 1, head_pos + max(8, n // 8))
+        x_ls = df.index[ls_pos]
+        x_rs = df.index[rs_pos]
 
     points_x = [x_ls, x_head, x_rs]
     points_y = [float(ls), float(head), float(rs)]
@@ -412,54 +433,52 @@ def _draw_hs(fig, df, data, signal_type, color):
 def _draw_double_top_bottom(fig, df, data, signal_type, color):
     """
     Mark the two peaks/troughs with annotated dots and a connecting line.
-    X-positions come from *_bar indices saved by the detector – guaranteed correct.
-    Falls back to argrelextrema scan only if indices are missing (old DB records).
+
+    Position priority (most → least reliable):
+    1. Timestamp within df range  → exact candle
+    2. Price-based search         → candle whose high/low is closest to peak1/peak2
+       (always within visible chart, immune to bar index drift)
+    3. Bar index (clamped)        → last resort for very old records
     """
     if signal_type == "bearish":
         p1 = data.get("peak1")
         p2 = data.get("peak2")
-        label = "Vrchol"
-        bar1_key, bar2_key = "peak1_bar", "peak2_bar"
-        ts1_key, ts2_key   = "peak1_ts",  "peak2_ts"
+        label   = "Vrchol"
+        ts1_key, ts2_key = "peak1_ts", "peak2_ts"
+        price_col = "high"
     else:
         p1 = data.get("trough1")
         p2 = data.get("trough2")
-        label = "Dno"
-        bar1_key, bar2_key = "trough1_bar", "trough2_bar"
-        ts1_key, ts2_key   = "trough1_ts",  "trough2_ts"
+        label   = "Dno"
+        ts1_key, ts2_key = "trough1_ts", "trough2_ts"
+        price_col = "low"
 
     if not p1 or not p2:
         return
 
-    n = len(df)
+    n   = len(df)
+    ts1 = data.get(ts1_key)
+    ts2 = data.get(ts2_key)
 
-    # Prefer timestamps (exact, immune to new candles) → fallback to bar index → fallback to scan
-    ts1    = data.get(ts1_key)
-    ts2    = data.get(ts2_key)
-    raw_i1 = data.get(bar1_key)
-    raw_i2 = data.get(bar2_key)
+    # --- Try timestamp first (only if within df time range) ---
+    x1_from_ts = _ts_to_x(df, ts1) if ts1 else None
+    x2_from_ts = _ts_to_x(df, ts2) if ts2 else None
 
-    if ts1 or ts2:
-        x1 = _ts_to_x(df, ts1, int(raw_i1) if raw_i1 is not None else None)
-        x2 = _ts_to_x(df, ts2, int(raw_i2) if raw_i2 is not None else None)
-    elif raw_i1 is not None and raw_i2 is not None:
-        x1 = _safe_x(df, max(0, min(int(raw_i1), n - 1)))
-        x2 = _safe_x(df, max(0, min(int(raw_i2), n - 1)))
+    # _ts_to_x returns df.index[-1] when timestamp is out of range – detect that
+    ts_in_range = (ts1 or ts2) and (x1_from_ts != df.index[-1] or x2_from_ts != df.index[-1])
+
+    if ts_in_range:
+        x1, x2 = x1_from_ts, x2_from_ts
     else:
-        # Fallback for old DB records without any position info
-        scan   = df["high"].values if signal_type == "bearish" else df["low"].values
-        window = min(80, n)
-        seg    = scan[-window:]
-        if signal_type == "bearish":
-            ext = argrelextrema(seg, np.greater_equal, order=5)[0]
-        else:
-            ext = argrelextrema(seg, np.less_equal, order=5)[0]
-        if len(ext) >= 2:
-            x1 = _safe_x(df, int(ext[-2]) + (n - window))
-            x2 = _safe_x(df, int(ext[-1]) + (n - window))
-        else:
-            x1 = _safe_x(df, n - 20)
-            x2 = _safe_x(df, n - 5)
+        # --- Price-based search: always lands on a real candle in the chart ---
+        x1 = _price_to_x(df, float(p1), col=price_col)
+        x2 = _price_to_x(df, float(p2), col=price_col)
+        # Ensure x1 is to the left of x2 (p1 is the older peak)
+        if x1 >= x2:
+            # Push x1 further back if both land on the same candle
+            idx2 = df.index.get_loc(x2)
+            idx1 = max(0, idx2 - max(10, n // 6))
+            x1 = df.index[idx1]
 
     # Connecting line between the two points
     fig.add_trace(
